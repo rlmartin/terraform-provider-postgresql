@@ -12,13 +12,14 @@ import (
 
 func TestAccPostgresqlTask_Basic(t *testing.T) {
 	config := `
-resource "postgresql_extension" "myextension" {
+resource "postgresql_extension" "pg_cron" {
 	name = "pg_cron"
 }
 resource "postgresql_task" "basic_task" {
     name = "basic_task"
     query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
 		schedule = "0 * * * *"
+		depends_on = [postgresql_extension.pg_cron]
 }
 `
 
