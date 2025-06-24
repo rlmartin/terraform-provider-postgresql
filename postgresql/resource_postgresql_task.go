@@ -75,7 +75,7 @@ func resourcePostgreSQLTaskCreate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	if err := createView(db, d); err != nil {
+	if err := createTask(db, d); err != nil {
 		return err
 	}
 
@@ -112,7 +112,7 @@ func resourcePostgreSQLTaskUpdate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	if err := createView(db, d); err != nil {
+	if err := createTask(db, d); err != nil {
 		return err
 	}
 
