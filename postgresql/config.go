@@ -45,6 +45,7 @@ const (
 	featureFunction
 	featureServer
 	featureView
+	featureTask
 	featureCreateRoleSelfGrant
 	featureSecurityLabel
 )

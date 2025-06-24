@@ -5,11 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/lib/pq"
 )
 
@@ -132,18 +130,18 @@ func resourcePostgreSQLTaskDelete(db *DBConnection, d *schema.ResourceData) erro
 	}
 
 	// Drop task command
-	sql, err = genDropTaskCommand(db, d)
+	dropTaskSql, err := genDropTaskCommand(db, d)
 	if err != nil {
 		return err
 	}
 
-	txn, err := startTransaction(db.client)
+	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return err
 	}
 	defer deferredRollback(txn)
 
-	if _, err := txn.Exec(sql); err != nil {
+	if _, err := txn.Exec(dropTaskSql); err != nil {
 		return err
 	}
 
@@ -158,28 +156,26 @@ func resourcePostgreSQLTaskDelete(db *DBConnection, d *schema.ResourceData) erro
 
 func resourcePostgreSQLTaskExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
 	if err := runChecks(db); err != nil {
-		return err
+		return false, err
 	}
 
 	taskID := d.Id()
 	if taskID == "" {
 		genTaskID, err := genTaskID(db, d)
 		if err != nil {
-			return err
+			return false, err
 		}
 		taskID = genTaskID
 	}
 	var taskExists bool
 
-	txn, err := startTransaction(db.client)
+	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return false, err
 	}
 	defer deferredRollback(txn)
 
-	query := fmt.Sprintf("SELECT count(id) > 0 AS taskExists from cron.job WHERE jobname = $1", taskID)
-
-	if err := txn.QueryRow(query).Scan(&taskExists); err != nil {
+	if err := txn.QueryRow("SELECT count(id) > 0 AS taskExists from cron.job WHERE jobname = $1", taskID).Scan(&taskExists); err != nil {
 		return false, err
 	}
 
@@ -221,14 +217,14 @@ func resourcePostgreSQLTaskReadImpl(db *DBConnection, d *schema.ResourceData) er
 		`j.schedule AS schedule ` +
 		`FROM cron.job j ` +
 		`WHERE jobname = $1`
-	txn, err := startTransaction(db.client)
+	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return err
 	}
 	defer deferredRollback(txn)
 
 	var taskInfo TaskInfo
-	err = txn.QueryRow(query, taskId).Scan(&taskInfo.Database, &taskInfo.Name, &taskInfo.Query, &taskInfo.Schedule)
+	err = txn.QueryRow(query, taskID).Scan(&taskInfo.Database, &taskInfo.Name, &taskInfo.Query, &taskInfo.Schedule)
 	switch {
 	case err == sql.ErrNoRows:
 		log.Printf("[WARN] PostgreSQL task: %s", taskID)
@@ -273,7 +269,7 @@ func parseTask(taskInfo TaskInfo) (PGTask, error) {
 func genDropTaskCommand(db *DBConnection, d *schema.ResourceData) (string, error) {
 	fullTaskName, err := genTaskID(db, d)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	dropTaskSqlBuffer := bytes.NewBufferString("SELECT cron.unschedule('")
 	dropTaskSqlBuffer.WriteString(pq.QuoteLiteral(fullTaskName))
@@ -293,7 +289,11 @@ func getDatabaseName(db *DBConnection, d *schema.ResourceData) (string, error) {
 func genTaskID(db *DBConnection, d *schema.ResourceData) (string, error) {
 	// Generate with format: <database_name>.<schema_name>.<task_name>
 	b := bytes.NewBufferString("")
-	fmt.Fprint(b, getDatabaseName(db, d), ".")
+	databaseName, err := getDatabaseName(db, d)
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprint(b, databaseName, ".")
 
 	schemaName := "public"
 	if v, ok := d.GetOk(taskSchemaAttr); ok {
@@ -323,13 +323,13 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 	fmt.Fprint(b, "UPDATE cron.job SET database = '", pq.QuoteLiteral(databaseName), "' WHERE jobname = '", pq.QuoteLiteral(fullTaskName), "' AND database != '", pq.QuoteLiteral(databaseName), "';")
 
 	// Drop task command
-	dropTaskSql, err = genDropTaskCommand(db, d)
+	dropTaskSql, err := genDropTaskCommand(db, d)
 	if err != nil {
 		return err
 	}
 
-	sql := b.String()
-	txn, err := startTransaction(db.client)
+	createTaskSql := b.String()
+	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return err
 	}
@@ -340,7 +340,7 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 		return err
 	}
 
-	if _, err := txn.Exec(sql); err != nil {
+	if _, err := txn.Exec(createTaskSql); err != nil {
 		return err
 	}
 
@@ -360,7 +360,7 @@ func runChecks(db *DBConnection) error {
 	}
 
 	var extensionExists bool
-	txn, err := startTransaction(db.client)
+	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return err
 	}
@@ -374,10 +374,11 @@ func runChecks(db *DBConnection) error {
 		return err
 	}
 
-	if !taskExists {
+	if !extensionExists {
 		return fmt.Errorf(
 			"The pg_cron extension must be installed on the database before a task is created. Please use the postgresql_extension resource to set it up.",
 		)
 	}
 
+	return nil
 }
