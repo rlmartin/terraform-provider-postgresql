@@ -49,7 +49,6 @@ resource "postgresql_task" "basic_task" {
 	})
 }
 
-
 func testAccCheckPostgresqlTaskDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*Client)
 
