@@ -169,7 +169,7 @@ func testAccCheckPostgresqlTaskExists(n string, database string) resource.TestCh
 
 func checkTaskExists(txn *sql.Tx, signature string) (bool, error) {
 	var exists bool
-	taskIDParts := strings.Split(taskInfo.Name, ".")
+	taskIDParts := strings.Split(signature, ".")
 	err := txn.QueryRow(fmt.Sprintf("SELECT count(*) > 0 AS exists FROM cron.job where jobname = '%s' and database = '%s'", signature, taskIDParts[0])).Scan(&exists)
 	switch {
 	case err == sql.ErrNoRows:
