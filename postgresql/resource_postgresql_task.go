@@ -83,7 +83,6 @@ func resourcePostgreSQLTaskCreate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
 	return nil
 }
 
@@ -97,13 +96,6 @@ func resourcePostgreSQLTaskRead(db *DBConnection, d *schema.ResourceData) error 
 		return err
 	}
 
-	// Detect if the query has been modified in Postgres without Terraform's awareness.
-	// For this kind of error, the users must consolidate manually.
-	tfQuery := d.Get(internalTFParsedQueryAttr).(string)
-	pgQuery := d.Get(internalPGParsedQueryAttr).(string)
-	if tfQuery != pgQuery {
-		return fmt.Errorf("the task: '%s' has been modified in Postgres", d.Get(taskNameAttr).(string))
-	}
 	return nil
 }
 
@@ -120,7 +112,6 @@ func resourcePostgreSQLTaskUpdate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
 	return nil
 }
 
