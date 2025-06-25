@@ -64,6 +64,7 @@ resource "postgresql_extension" "pg_cron" {
 }
 resource "postgresql_task" "basic_task" {
 	database = "%s"
+	schema = "my_schema"
 	name = "basic_task"
 	query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
 	schedule = "0 * * * *"
@@ -86,6 +87,57 @@ resource "postgresql_task" "basic_task" {
 					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "database", dbName),
 					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schema", "my_schema"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "name", "basic_task"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "query", "SELECT * FROM unnest(ARRAY[1]) AS element;"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schedule", "0 * * * *"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccPostgresqlTask_Update(t *testing.T) {
+	configCreate := `
+resource "postgresql_extension" "pg_cron" {
+	name = "pg_cron"
+}
+resource "postgresql_task" "basic_task" {
+	name = "basic_task"
+	query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
+	schedule = "0 * * * *"
+	depends_on = [postgresql_extension.pg_cron]
+}
+`
+
+	configUpdate := `
+resource "postgresql_task" "basic_task" {
+	database = "%s"
+	schema = "my_schema"
+	name = "basic_task2"
+	query = "SELECT count(*) FROM unnest(ARRAY[1]) AS element;"
+	schedule = "0 0 0 * *"
+	depends_on = [postgresql_extension.pg_cron]
+}
+`
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureView)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlViewDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: configCreate,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlTaskExists("postgresql_task.basic_task", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "database", "postgres"),
+					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "schema", "public"),
 					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "name", "basic_task"),
@@ -93,6 +145,22 @@ resource "postgresql_task" "basic_task" {
 						"postgresql_task.basic_task", "query", "SELECT * FROM unnest(ARRAY[1]) AS element;"),
 					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "schedule", "0 * * * *"),
+				),
+			},
+			{
+				Config: fmt.Sprintf(configUpdate, dbName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlTaskExists("postgresql_task.basic_task", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "database", dbName),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schema", "my_schema"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "name", "basic_task2"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "query", "SELECT count(*) FROM unnest(ARRAY[1]) AS element;"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schedule", "0 0 0 * *"),
 				),
 			},
 		},
