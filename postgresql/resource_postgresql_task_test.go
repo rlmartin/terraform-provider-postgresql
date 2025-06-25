@@ -171,7 +171,7 @@ resource "postgresql_task" "basic_task" {
 	schema = "my_schema"
 	name = "basic_task2"
 	query = "SELECT count(*) FROM unnest(ARRAY[1]) AS element;"
-	schedule = "0 0 0 * *"
+	schedule = "0 0 1 * *"
 	depends_on = [postgresql_extension.pg_cron]
 }
 `
@@ -212,7 +212,7 @@ resource "postgresql_task" "basic_task" {
 					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "query", "SELECT count(*) FROM unnest(ARRAY[1]) AS element;"),
 					resource.TestCheckResourceAttr(
-						"postgresql_task.basic_task", "schedule", "0 0 0 * *"),
+						"postgresql_task.basic_task", "schedule", "0 0 1 * *"),
 				),
 			},
 		},
