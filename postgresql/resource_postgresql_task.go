@@ -335,9 +335,14 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 	}
 	defer deferredRollback(txn)
 
-	// Drop task if exists
-	if _, err := txn.Exec(dropTaskSql); err != nil {
+	// Drop task if exists, will error if task does not exist, so ignore error and move on.
+	if taskExists, err := resourcePostgreSQLTaskExists(db, d); err != nil {
 		return err
+	}
+	if taskExists {
+		if _, err := txn.Exec(dropTaskSql); err != nil {
+			return err
+		}
 	}
 
 	if _, err := txn.Exec(createTaskSql); err != nil {
