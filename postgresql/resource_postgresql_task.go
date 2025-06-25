@@ -175,7 +175,7 @@ func resourcePostgreSQLTaskExists(db *DBConnection, d *schema.ResourceData) (boo
 	}
 	defer deferredRollback(txn)
 
-	if err := txn.QueryRow("SELECT count(id) > 0 AS taskExists from cron.job WHERE jobname = $1", taskID).Scan(&taskExists); err != nil {
+	if err := txn.QueryRow("SELECT count(*) > 0 AS taskExists from cron.job WHERE jobname = $1", taskID).Scan(&taskExists); err != nil {
 		return false, err
 	}
 
