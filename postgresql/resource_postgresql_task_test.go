@@ -3,11 +3,11 @@ package postgresql
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-	"github.com/jackc/pgx/v5"
 )
 
 func TestAccPostgresqlTask_Basic(t *testing.T) {
@@ -120,8 +120,9 @@ func checkTaskExists(txn *sql.Tx, signature string) (bool, error) {
 	case err == sql.ErrNoRows:
 		return false, nil
 	case err != nil:
-		if pgErr, ok := err.(*pgconn.PgError); ok {
-			fmt.Errorf("Postgres error:", pgErr.Message, "Code:", pgErr.Code)
+		if strings.Contains(err.Error(), "Did not find any relation named \"cron.job\"") {
+			// Extension was removed before the task, effectively removing the task.
+			return false, nil
 		}
 		return false, fmt.Errorf("Error reading info about task: %s", err)
 	}
