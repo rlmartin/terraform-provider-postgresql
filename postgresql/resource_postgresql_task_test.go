@@ -179,6 +179,7 @@ resource "postgresql_task" "basic_task" {
 		PreCheck: func() {
 			testAccPreCheck(t)
 			testCheckCompatibleVersion(t, featureView)
+			testSuperuserPreCheck(t)
 		},
 		Providers:    testAccProviders,
 		CheckDestroy: testAccCheckPostgresqlViewDestroy,
