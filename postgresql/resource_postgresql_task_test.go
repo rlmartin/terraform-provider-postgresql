@@ -50,6 +50,48 @@ resource "postgresql_task" "basic_task" {
 	})
 }
 
+func TestAccPostgresqlTask_WithQuotes(t *testing.T) {
+	config := `
+resource "postgresql_extension" "pg_cron" {
+	name = "pg_cron"
+}
+resource "postgresql_task" "basic_task" {
+	name = "basic_task"
+	query = <<-EOF
+SELECT 1 AS "One", '2' AS two;
+	EOF
+	schedule = "0 * * * *"
+	depends_on = [postgresql_extension.pg_cron]
+}
+`
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureTask)
+			testSuperuserPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlTaskDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlTaskExists("postgresql_task.basic_task", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schema", "public"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "name", "basic_task"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "query", "SELECT 1 AS \"One\", '2' AS two;\n"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schedule", "0 * * * *"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccPostgresqlTask_SpecificDatabase(t *testing.T) {
 	skipIfNotAcc(t)
 
