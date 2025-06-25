@@ -321,7 +321,6 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 	b := bytes.NewBufferString("SELECT cron.schedule(")
 	fmt.Fprint(b, pq.QuoteLiteral(fullTaskName), ", ", pq.QuoteLiteral(cronSchedule), ", ", pq.QuoteLiteral(query), "); ")
 	fmt.Fprint(b, "UPDATE cron.job SET database = ", pq.QuoteLiteral(databaseName), " WHERE jobname = ", pq.QuoteLiteral(fullTaskName), " AND database != ", pq.QuoteLiteral(databaseName), ";")
-	log.Printf("[WARN] PostgreSQL task: %s", fullTaskName)
 
 	// Drop task command
 	dropTaskSql, err := genDropTaskCommand(db, d)
@@ -330,7 +329,6 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 	}
 
 	createTaskSql := b.String()
-	log.Printf("[WARN] createTaskSql: %s", createTaskSql)
 	txn, err := startTransaction(db.client, "")
 	if err != nil {
 		return err
