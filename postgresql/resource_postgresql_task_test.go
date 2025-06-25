@@ -16,10 +16,10 @@ resource "postgresql_extension" "pg_cron" {
 	name = "pg_cron"
 }
 resource "postgresql_task" "basic_task" {
-    name = "basic_task"
-    query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
-		schedule = "0 * * * *"
-		depends_on = [postgresql_extension.pg_cron]
+	name = "basic_task"
+	query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
+	schedule = "0 * * * *"
+	depends_on = [postgresql_extension.pg_cron]
 }
 `
 
@@ -27,6 +27,7 @@ resource "postgresql_task" "basic_task" {
 		PreCheck: func() {
 			testAccPreCheck(t)
 			testCheckCompatibleVersion(t, featureTask)
+			testSuperuserPreCheck(t)
 		},
 		Providers:    testAccProviders,
 		CheckDestroy: testAccCheckPostgresqlTaskDestroy,
@@ -35,6 +36,55 @@ resource "postgresql_task" "basic_task" {
 				Config: config,
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPostgresqlTaskExists("postgresql_task.basic_task", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schema", "public"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "name", "basic_task"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "query", "SELECT * FROM unnest(ARRAY[1]) AS element;"),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "schedule", "0 * * * *"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccPostgresqlTask_SpecificDatabase(t *testing.T) {
+	skipIfNotAcc(t)
+
+	dbSuffix, teardown := setupTestDatabase(t, true, true)
+	defer teardown()
+
+	dbName, _ := getTestDBNames(dbSuffix)
+
+	config := `
+resource "postgresql_extension" "pg_cron" {
+	name = "pg_cron"
+}
+resource "postgresql_task" "basic_task" {
+	database = "%s"
+	name = "basic_task"
+	query = "SELECT * FROM unnest(ARRAY[1]) AS element;"
+	schedule = "0 * * * *"
+	depends_on = [postgresql_extension.pg_cron]
+}
+`
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureTask)
+			testSuperuserPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlTaskDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(config, dbName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlTaskExists("postgresql_task.basic_task", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_task.basic_task", "database", dbName),
 					resource.TestCheckResourceAttr(
 						"postgresql_task.basic_task", "schema", "public"),
 					resource.TestCheckResourceAttr(
@@ -68,6 +118,10 @@ func testAccCheckPostgresqlTaskDestroy(s *terraform.State) error {
 		exists, err := checkTaskExists(txn, taskId)
 
 		if err != nil {
+			if strings.Contains(err.Error(), "relation \"cron.job\" does not exist") {
+				// Extension was removed before the task, effectively removing the task.
+				return nil
+			}
 			return fmt.Errorf("Error checking task %s", err)
 		}
 
@@ -115,15 +169,12 @@ func testAccCheckPostgresqlTaskExists(n string, database string) resource.TestCh
 
 func checkTaskExists(txn *sql.Tx, signature string) (bool, error) {
 	var exists bool
-	err := txn.QueryRow(fmt.Sprintf("SELECT count(*) > 0 AS exists FROM cron.job where jobname = '%s'", signature)).Scan(&exists)
+	taskIDParts := strings.Split(taskInfo.Name, ".")
+	err := txn.QueryRow(fmt.Sprintf("SELECT count(*) > 0 AS exists FROM cron.job where jobname = '%s' and database = '%s'", signature, taskIDParts[0])).Scan(&exists)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
 	case err != nil:
-		if strings.Contains(err.Error(), "relation \"cron.job\" does not exist") {
-			// Extension was removed before the task, effectively removing the task.
-			return false, nil
-		}
 		return false, fmt.Errorf("Error reading info about task: %s", err)
 	}
 
