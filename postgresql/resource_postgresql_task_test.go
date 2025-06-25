@@ -163,6 +163,9 @@ resource "postgresql_task" "basic_task" {
 `
 
 	configUpdate := `
+resource "postgresql_extension" "pg_cron" {
+	name = "pg_cron"
+}
 resource "postgresql_task" "basic_task" {
 	database = "%s"
 	schema = "my_schema"
