@@ -101,6 +101,13 @@ resource "postgresql_task" "basic_task" {
 }
 
 func TestAccPostgresqlTask_Update(t *testing.T) {
+	skipIfNotAcc(t)
+
+	dbSuffix, teardown := setupTestDatabase(t, true, true)
+	defer teardown()
+
+	dbName, _ := getTestDBNames(dbSuffix)
+
 	configCreate := `
 resource "postgresql_extension" "pg_cron" {
 	name = "pg_cron"
