@@ -336,7 +336,8 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 	defer deferredRollback(txn)
 
 	// Drop task if exists, will error if task does not exist, so ignore error and move on.
-	if taskExists, err := resourcePostgreSQLTaskExists(db, d); err != nil {
+	taskExists, err := resourcePostgreSQLTaskExists(db, d)
+	if err != nil {
 		return err
 	}
 	if taskExists {
