@@ -271,9 +271,9 @@ func genDropTaskCommand(db *DBConnection, d *schema.ResourceData) (string, error
 	if err != nil {
 		return "", err
 	}
-	dropTaskSqlBuffer := bytes.NewBufferString("SELECT cron.unschedule('")
+	dropTaskSqlBuffer := bytes.NewBufferString("SELECT cron.unschedule(")
 	dropTaskSqlBuffer.WriteString(pq.QuoteLiteral(fullTaskName))
-	dropTaskSqlBuffer.WriteString("');")
+	dropTaskSqlBuffer.WriteString(");")
 	dropTaskSql := dropTaskSqlBuffer.String()
 	return dropTaskSql, nil
 }
@@ -319,8 +319,8 @@ func createTask(db *DBConnection, d *schema.ResourceData) error {
 
 	// Construct the task
 	b := bytes.NewBufferString("SELECT cron.schedule(")
-	fmt.Fprint(b, "'", pq.QuoteLiteral(fullTaskName), "','", pq.QuoteLiteral(cronSchedule), "','", pq.QuoteLiteral(query), "');")
-	fmt.Fprint(b, "UPDATE cron.job SET database = '", pq.QuoteLiteral(databaseName), "' WHERE jobname = '", pq.QuoteLiteral(fullTaskName), "' AND database != '", pq.QuoteLiteral(databaseName), "';")
+	fmt.Fprint(b, pq.QuoteLiteral(fullTaskName), ", ", pq.QuoteLiteral(cronSchedule), ", ", pq.QuoteLiteral(query), "); ")
+	fmt.Fprint(b, "UPDATE cron.job SET database = ", pq.QuoteLiteral(databaseName), " WHERE jobname = ", pq.QuoteLiteral(fullTaskName), " AND database != ", pq.QuoteLiteral(databaseName), ";")
 	log.Printf("[WARN] PostgreSQL task: %s", fullTaskName)
 
 	// Drop task command
