@@ -120,7 +120,7 @@ func checkTaskExists(txn *sql.Tx, signature string) (bool, error) {
 	case err == sql.ErrNoRows:
 		return false, nil
 	case err != nil:
-		if strings.Contains(err.Error(), "Did not find any relation named \"cron.job\"") {
+		if strings.Contains(err.Error(), "relation \"cron.job\" does not exist") {
 			// Extension was removed before the task, effectively removing the task.
 			return false, nil
 		}
