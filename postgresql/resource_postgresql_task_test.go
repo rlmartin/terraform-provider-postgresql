@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-	"github.com/jackc/pgconn"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestAccPostgresqlTask_Basic(t *testing.T) {
