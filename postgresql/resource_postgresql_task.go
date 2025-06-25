@@ -133,6 +133,14 @@ func resourcePostgreSQLTaskDelete(db *DBConnection, d *schema.ResourceData) erro
 	defer deferredRollback(txn)
 
 	if _, err := txn.Exec(dropTaskSql); err != nil {
+		if strings.Contains(err.Error(), "schema \"cron\" does not exist") {
+			// Extension was removed before the task, effectively removing the task.
+			return nil
+		}
+		if strings.Contains(err.Error(), "could not find valid entry for job") {
+			// Job already does not exist
+			return nil
+		}
 		return err
 	}
 
