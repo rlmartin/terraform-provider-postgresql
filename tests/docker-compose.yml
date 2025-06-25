@@ -15,6 +15,8 @@ services:
           - "max_replication_slots=10"
           - "-c"
           - "shared_preload_libraries=/opt/dummy_seclabel/dummy_seclabel"
+          - "-c"
+          - "cron.database_name=postgres"
         environment:
             POSTGRES_PASSWORD: ${PGPASSWORD}
         ports:
