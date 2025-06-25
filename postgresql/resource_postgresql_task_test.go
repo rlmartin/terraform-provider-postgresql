@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/jackc/pgconn"
 )
 
 func TestAccPostgresqlTask_Basic(t *testing.T) {
@@ -119,6 +120,9 @@ func checkTaskExists(txn *sql.Tx, signature string) (bool, error) {
 	case err == sql.ErrNoRows:
 		return false, nil
 	case err != nil:
+		if pgErr, ok := err.(*pgconn.PgError); ok {
+			fmt.Errorf("Postgres error:", pgErr.Message, "Code:", pgErr.Code)
+		}
 		return false, fmt.Errorf("Error reading info about task: %s", err)
 	}
 
