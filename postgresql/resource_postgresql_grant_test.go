@@ -19,7 +19,7 @@ func TestCreateGrantQuery(t *testing.T) {
 	var tableObjects = []interface{}{"o1", "o2"}
 	var tableColumns = []interface{}{"col1", "col2"}
 	var fdwObjects = []interface{}{"baz"}
-	var viewObjects = []interface{}{"v2", "v1"}
+	var viewObjects = []interface{}{"v1", "v2"}
 
 	cases := []struct {
 		resource   *schema.ResourceData
@@ -137,7 +137,7 @@ func TestCreateGrantQuery(t *testing.T) {
 				"role":        roleName,
 			}),
 			privileges: []string{"SELECT"},
-			expected:   fmt.Sprintf(`GRANT SELECT ON VIEW %[1]s."v2",%[1]s."v1" TO %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
+			expected:   fmt.Sprintf(`GRANT SELECT ON VIEW %[1]s."v1",%[1]s."v2" TO %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
@@ -204,7 +204,7 @@ func TestCreateRevokeQuery(t *testing.T) {
 	var tableObjects = []interface{}{"o1", "o2"}
 	var tableColumns = []interface{}{"col1", "col2"}
 	var fdwObjects = []interface{}{"baz"}
-	var viewObjects = []interface{}{"v2", "v1"}
+	var viewObjects = []interface{}{"v1", "v2"}
 
 	cases := []struct {
 		resource *schema.ResourceData
@@ -300,7 +300,7 @@ func TestCreateRevokeQuery(t *testing.T) {
 				"schema":      databaseName,
 				"role":        roleName,
 			}),
-			expected: fmt.Sprintf(`REVOKE ALL PRIVILEGES ON VIEW %[1]s."v2",%[1]s."v1" FROM %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
+			expected: fmt.Sprintf(`REVOKE ALL PRIVILEGES ON VIEW %[1]s."v1",%[1]s."v2" FROM %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
@@ -310,7 +310,7 @@ func TestCreateRevokeQuery(t *testing.T) {
 				"role":        roleName,
 				"privileges":  []interface{}{"SELECT"},
 			}),
-			expected: fmt.Sprintf(`REVOKE SELECT ON VIEW %[1]s."v2",%[1]s."v1" FROM %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
+			expected: fmt.Sprintf(`REVOKE SELECT ON VIEW %[1]s."v1",%[1]s."v2" FROM %s`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
