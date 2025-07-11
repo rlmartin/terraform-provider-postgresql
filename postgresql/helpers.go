@@ -252,6 +252,7 @@ func sliceContainsStr(haystack []string, needle string) bool {
 var allowedPrivileges = map[string][]string{
 	"database":             {"ALL", "CREATE", "CONNECT", "TEMPORARY"},
 	"table":                {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"},
+	"view":                 {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES"},
 	"sequence":             {"ALL", "USAGE", "SELECT", "UPDATE"},
 	"schema":               {"ALL", "CREATE", "USAGE"},
 	"function":             {"ALL", "EXECUTE"},
