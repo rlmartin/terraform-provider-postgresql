@@ -539,6 +539,7 @@ GROUP BY pg_class.relname
 
 func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 	var query string
+	withGrantOptionIsEmbedded := false
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
 	case "DATABASE":
@@ -580,7 +581,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 			setToPgIdentList(d.Get("schema").(string), objects),
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
-	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE", "VIEW":
+	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
 		objects := d.Get("objects").(*schema.Set)
 		if objects.Len() > 0 {
 			query = fmt.Sprintf(
@@ -599,9 +600,49 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 				pq.QuoteIdentifier(d.Get("role").(string)),
 			)
 		}
+	case "VIEW":
+		objects := d.Get("objects").(*schema.Set)
+		if objects.Len() > 0 {
+			query = fmt.Sprintf(
+				"GRANT %s ON %s TO %s",
+				strings.Join(privileges, ","),
+				setToPgIdentList(d.Get("schema").(string), objects),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+			if d.Get("with_grant_option").(bool) {
+				query = query + " WITH GRANT OPTION"
+			}
+		} else {
+			withGrantOption := ""
+			if d.Get("with_grant_option").(bool) {
+				withGrantOption = " WITH GRANT OPTION"
+			}
+			query = fmt.Sprintf(
+				`DO $$
+DECLARE
+  obj record;
+BEGIN
+  FOR obj IN
+    SELECT schemaname, viewname
+    FROM pg_catalog.pg_views
+    WHERE schemaname = %s
+  LOOP
+    EXECUTE format(
+      'GRANT %s ON %%I.%%I TO %s%s;',
+      obj.schemaname, obj.viewname
+    );
+  END LOOP;
+END;
+$$;`,
+				pq.QuoteIdentifier(d.Get("schema").(string)),
+				strings.Join(privileges, ","),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+				withGrantOption,
+			)
+			withGrantOptionIsEmbedded = true
+		}
 	}
-
-	if d.Get("with_grant_option").(bool) {
+	if d.Get("with_grant_option").(bool) && !withGrantOptionIsEmbedded {
 		query = query + " WITH GRANT OPTION"
 	}
 
@@ -654,7 +695,7 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 				pq.QuoteIdentifier(getter("role").(string)),
 			)
 		}
-	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE", "VIEW":
+	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
 		objects := getter("objects").(*schema.Set)
 		privileges := getter("privileges").(*schema.Set)
 		if objects.Len() > 0 {
@@ -680,6 +721,48 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 			query = fmt.Sprintf(
 				"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
 				strings.ToUpper(getter("object_type").(string)),
+				pq.QuoteIdentifier(getter("schema").(string)),
+				pq.QuoteIdentifier(getter("role").(string)),
+			)
+		}
+	case "VIEW":
+		objects := getter("objects").(*schema.Set)
+		privileges := getter("privileges").(*schema.Set)
+		if objects.Len() > 0 {
+			if privileges.Len() > 0 {
+				// Revoking specific privileges instead of all privileges
+				// to avoid messing with column level grants
+				query = fmt.Sprintf(
+					"REVOKE %s ON %s FROM %s",
+					setToPgIdentSimpleList(privileges),
+					setToPgIdentList(getter("schema").(string), objects),
+					pq.QuoteIdentifier(getter("role").(string)),
+				)
+			} else {
+				query = fmt.Sprintf(
+					"REVOKE ALL PRIVILEGES ON %s FROM %s",
+					setToPgIdentList(getter("schema").(string), objects),
+					pq.QuoteIdentifier(getter("role").(string)),
+				)
+			}
+		} else {
+			query = fmt.Sprintf(
+				`DO $$
+DECLARE
+  obj record;
+BEGIN
+  FOR obj IN
+    SELECT schemaname, viewname
+    FROM pg_catalog.pg_views
+    WHERE schemaname = %s
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON %%I.%%I FROM %s;',
+      obj.schemaname, obj.viewname
+    );
+  END LOOP;
+END;
+$$;`,
 				pq.QuoteIdentifier(getter("schema").(string)),
 				pq.QuoteIdentifier(getter("role").(string)),
 			)
