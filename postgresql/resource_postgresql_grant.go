@@ -24,6 +24,7 @@ var allowedObjectTypes = []string{
 	"foreign_data_wrapper",
 	"foreign_server",
 	"column",
+	"view",
 }
 
 var objectTypes = map[string]string{
@@ -32,6 +33,7 @@ var objectTypes = map[string]string{
 	"function": "f",
 	"type":     "T",
 	"schema":   "n",
+	"view":     "v",
 }
 
 type ResourceSchemeGetter func(string) interface{}
