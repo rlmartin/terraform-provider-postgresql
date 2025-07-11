@@ -610,7 +610,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 			)
 		} else {
 			query = fmt.Sprintf(
-				"DO $$
+				`DO $$
 DECLARE
   obj record;
 BEGIN
@@ -625,7 +625,7 @@ BEGIN
     );
   END LOOP;
 END;
-$$;",
+$$;`,
 				pq.QuoteIdentifier(d.Get("schema").(string)),
 				strings.Join(privileges, ","),
 				pq.QuoteIdentifier(d.Get("role").(string)),
@@ -738,7 +738,7 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 			}
 		} else {
 			query = fmt.Sprintf(
-				"DO $$
+				`DO $$
 DECLARE
   obj record;
 BEGIN
@@ -753,7 +753,7 @@ BEGIN
     );
   END LOOP;
 END;
-$$;",
+$$;`,
 				pq.QuoteIdentifier(getter("schema").(string)),
 				pq.QuoteIdentifier(getter("role").(string)),
 			)

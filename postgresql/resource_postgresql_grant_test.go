@@ -89,7 +89,7 @@ func TestCreateGrantQuery(t *testing.T) {
 				"with_grant_option": true,
 			}),
 			privileges: []string{"SELECT"},
-			expected:   fmt.Sprintf("DO $$
+			expected:   fmt.Sprintf(`DO $$
 DECLARE
   obj record;
 BEGIN
@@ -104,7 +104,7 @@ BEGIN
     );
   END LOOP;
 END;
-$$;", pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
+$$;`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
@@ -239,7 +239,7 @@ func TestCreateRevokeQuery(t *testing.T) {
 				"schema":      databaseName,
 				"role":        roleName,
 			}),
-			expected: fmt.Sprintf("DO $$
+			expected: fmt.Sprintf(`DO $$
 DECLARE
   obj record;
 BEGIN
@@ -254,7 +254,7 @@ BEGIN
     );
   END LOOP;
 END;
-$$;", pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
+$$;`, pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
