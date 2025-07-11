@@ -539,6 +539,7 @@ GROUP BY pg_class.relname
 
 func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 	var query string
+	withGrantOptionIsEmbedded := false
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
 	case "DATABASE":
@@ -638,7 +639,11 @@ $$;`,
 				pq.QuoteIdentifier(d.Get("role").(string)),
 				withGrantOption,
 			)
+			withGrantOptionIsEmbedded = true
 		}
+	}
+	if d.Get("with_grant_option").(bool) && !withGrantOptionIsEmbedded {
+		query = query + " WITH GRANT OPTION"
 	}
 
 	return query
