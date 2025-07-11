@@ -608,7 +608,14 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 				setToPgIdentList(d.Get("schema").(string), objects),
 				pq.QuoteIdentifier(d.Get("role").(string)),
 			)
+			if d.Get("with_grant_option").(bool) {
+				query = query + " WITH GRANT OPTION"
+			}
 		} else {
+			withGrantOption = ""
+			if d.Get("with_grant_option").(bool) {
+				withGrantOption = " WITH GRANT OPTION"
+			}
 			query = fmt.Sprintf(
 				`DO $$
 DECLARE
@@ -620,7 +627,7 @@ BEGIN
     WHERE schemaname = %s
   LOOP
     EXECUTE format(
-      'GRANT %s ON %%I.%%I TO %s;',
+      'GRANT %s ON %%I.%%I TO %s%s;',
       obj.schemaname, obj.viewname
     );
   END LOOP;
@@ -629,12 +636,9 @@ $$;`,
 				pq.QuoteIdentifier(d.Get("schema").(string)),
 				strings.Join(privileges, ","),
 				pq.QuoteIdentifier(d.Get("role").(string)),
+				withGrantOption,
 			)
 		}
-	}
-
-	if d.Get("with_grant_option").(bool) {
-		query = query + " WITH GRANT OPTION"
 	}
 
 	return query

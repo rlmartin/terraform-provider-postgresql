@@ -99,7 +99,7 @@ BEGIN
     WHERE schemaname = %s
   LOOP
     EXECUTE format(
-      'GRANT SELECT ON %%I.%%I TO %s;',
+      'GRANT SELECT ON %%I.%%I TO %s WITH GRANT OPTION;',
       obj.schemaname, obj.viewname
     );
   END LOOP;
