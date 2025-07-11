@@ -19,7 +19,7 @@ func TestCreateGrantQuery(t *testing.T) {
 	var tableObjects = []interface{}{"o1", "o2"}
 	var tableColumns = []interface{}{"col1", "col2"}
 	var fdwObjects = []interface{}{"baz"}
-	var viewObjects = []interface{}{"v1", "v2"}
+	var viewObjects = []interface{}{"v2", "v1"}
 
 	cases := []struct {
 		resource   *schema.ResourceData
@@ -204,7 +204,7 @@ func TestCreateRevokeQuery(t *testing.T) {
 	var tableObjects = []interface{}{"o1", "o2"}
 	var tableColumns = []interface{}{"col1", "col2"}
 	var fdwObjects = []interface{}{"baz"}
-	var viewObjects = []interface{}{"v1", "v2"}
+	var viewObjects = []interface{}{"v2", "v1"}
 
 	cases := []struct {
 		resource *schema.ResourceData
