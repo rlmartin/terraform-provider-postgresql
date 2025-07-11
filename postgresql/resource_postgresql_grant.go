@@ -620,7 +620,7 @@ BEGIN
     WHERE schemaname = %s
   LOOP
     EXECUTE format(
-      'GRANT %s ON %I.%I TO %s;',
+      'GRANT %s ON %%I.%%I TO %s;',
       obj.schemaname, obj.viewname
     );
   END LOOP;
@@ -748,7 +748,7 @@ BEGIN
     WHERE schemaname = %s
   LOOP
     EXECUTE format(
-      'REVOKE ALL PRIVILEGES ON %I.%I FROM %s;',
+      'REVOKE ALL PRIVILEGES ON %%I.%%I FROM %s;',
       obj.schemaname, obj.viewname
     );
   END LOOP;
