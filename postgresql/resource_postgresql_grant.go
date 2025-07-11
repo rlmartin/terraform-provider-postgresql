@@ -612,7 +612,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 				query = query + " WITH GRANT OPTION"
 			}
 		} else {
-			withGrantOption = ""
+			withGrantOption := ""
 			if d.Get("with_grant_option").(bool) {
 				withGrantOption = " WITH GRANT OPTION"
 			}
