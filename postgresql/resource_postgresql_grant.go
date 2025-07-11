@@ -24,6 +24,7 @@ var allowedObjectTypes = []string{
 	"foreign_data_wrapper",
 	"foreign_server",
 	"column",
+	"view",
 }
 
 var objectTypes = map[string]string{
@@ -32,6 +33,7 @@ var objectTypes = map[string]string{
 	"function": "f",
 	"type":     "T",
 	"schema":   "n",
+	"view":     "v",
 }
 
 type ResourceSchemeGetter func(string) interface{}
@@ -578,7 +580,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 			setToPgIdentList(d.Get("schema").(string), objects),
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
-	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
+	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE", "VIEW":
 		objects := d.Get("objects").(*schema.Set)
 		if objects.Len() > 0 {
 			query = fmt.Sprintf(
@@ -652,7 +654,7 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 				pq.QuoteIdentifier(getter("role").(string)),
 			)
 		}
-	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
+	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE", "VIEW":
 		objects := getter("objects").(*schema.Set)
 		privileges := getter("privileges").(*schema.Set)
 		if objects.Len() > 0 {
