@@ -89,7 +89,7 @@ func TestCreateGrantQuery(t *testing.T) {
 				"with_grant_option": true,
 			}),
 			privileges: []string{"SELECT"},
-			expected:   fmt.Sprintf(`DO $$
+			expected: fmt.Sprintf(`DO $$
 DECLARE
   obj record;
 BEGIN
