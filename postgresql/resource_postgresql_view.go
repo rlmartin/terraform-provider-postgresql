@@ -146,13 +146,7 @@ func resourcePostgreSQLViewRead(db *DBConnection, d *schema.ResourceData) error 
 		return err
 	}
 
-	// Detect if the query has been modified in Postgres without Terraform's awareness.
-	// For this kind of error, the users must consolidate manually.
-	tfQuery := d.Get(internalTFParsedQueryAttr).(string)
-	pgQuery := d.Get(internalPGParsedQueryAttr).(string)
-	if tfQuery != pgQuery {
-		return fmt.Errorf("the view: '%s' has been modified in Postgres", d.Get(viewNameAttr).(string))
-	}
+	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
 	return nil
 }
 
