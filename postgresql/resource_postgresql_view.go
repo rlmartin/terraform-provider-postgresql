@@ -344,17 +344,12 @@ func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDi
 	}
 
 	client := meta.(*Client)
-	db, err := client.Connect()
-	if err != nil {
-		return err
-	}
-
 	databaseName := client.databaseName
 	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
 		databaseName = databaseAttr.(string)
 	}
 
-	normalizedQuery, err := normalizeViewQuery(db, databaseName, query)
+	normalizedQuery, err := normalizeViewQuery(client, databaseName, query)
 	if err != nil {
 		return err
 	}
@@ -495,7 +490,7 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	return nil
 }
 
-func normalizeViewQuery(db *DBConnection, databaseName string, query string) (string, error) {
+func normalizeViewQuery(client *Client, databaseName string, query string) (string, error) {
 	trimmedQuery := strings.TrimSpace(query)
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 
@@ -506,7 +501,7 @@ func normalizeViewQuery(db *DBConnection, databaseName string, query string) (st
 		trimmedQuery,
 	)
 
-	txn, err := startTransaction(db.client, databaseName)
+	txn, err := startTransaction(client, databaseName)
 	if err != nil {
 		return "", err
 	}
