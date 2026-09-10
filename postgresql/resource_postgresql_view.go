@@ -33,8 +33,6 @@ const (
 	internalPGParsedQueryAttr = "internal_pg_parsed_query"
 	// Stores the last updated parsed/rewritten query has been recorded in Terraform.
 	internalTFParsedQueryAttr = "internal_tf_parsed_query"
-	// Stores the provider connection key used to access the current database.
-	internalProviderConnectionIDAttr = "internal_provider_connection_id"
 )
 
 func resourcePostgreSQLView() *schema.Resource {
@@ -110,10 +108,6 @@ func resourcePostgreSQLView() *schema.Resource {
 				Computed: true,
 			},
 			internalTFParsedQueryAttr: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			internalProviderConnectionIDAttr: {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
@@ -322,7 +316,11 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(viewDatabaseAttr, pgView.Database)
 	d.Set(viewSchemaAttr, pgView.Schema)
 	d.Set(viewNameAttr, pgView.Name)
-	d.Set(viewQueryAttr, d.Get(viewQueryAttr).(string))
+	viewQuery := d.Get(viewQueryAttr).(string)
+	if viewQuery == "" {
+		viewQuery = pgView.Query
+	}
+	d.Set(viewQueryAttr, viewQuery)
 	d.Set(viewWithCheckOptionAttr, pgView.WithCheckOption)
 	d.Set(viewWithSecurityBarrierAttr, pgView.WithSecurityBarrier)
 	d.Set(viewWithSecurityInvokerAttr, pgView.WithSecurityInvoker)
@@ -331,7 +329,6 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	}
 	// Internal states
 	d.Set(internalPGParsedQueryAttr, pgView.Query)
-	d.Set(internalProviderConnectionIDAttr, db.client.connectionID)
 
 	d.SetId(viewID)
 
@@ -461,96 +458,71 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	return nil
 }
 
-func normalizeViewQuery(client *Client, databaseName string, query string) (string, error) {
-	trimmedQuery := strings.TrimSpace(query)
-	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
-	cacheKey := fmt.Sprintf("%s\x00%s", databaseName, trimmedQuery)
-
-	if cachedQuery, ok := client.normalizedViewQueries.Load(cacheKey); ok {
-		return cachedQuery.(string), nil
-	}
-
-	txn, err := startTransaction(client, databaseName)
-	if err != nil {
-		return "", err
-	}
-	defer deferredRollback(txn)
-
-	var backendPID int
-	var transactionID int64
-	if err := txn.QueryRow("SELECT pg_backend_pid(), txid_current()").Scan(&backendPID, &transactionID); err != nil {
-		return "", err
-	}
-
-	tempViewName := fmt.Sprintf("terraform_provider_postgresql_view_%d_%d", backendPID, transactionID)
-	createSQL := fmt.Sprintf(
-		"CREATE TEMP VIEW %s AS\n%s",
-		pq.QuoteIdentifier(tempViewName),
-		trimmedQuery,
-	)
-
-	if _, err := txn.Exec(createSQL); err != nil {
-		return "", err
-	}
-
-	var normalizedQuery string
-	if err := txn.QueryRow(
-		`SELECT pg_get_viewdef(c.oid, true)
-		FROM pg_class c
-		JOIN pg_namespace n ON c.relnamespace = n.oid
-		WHERE c.relkind = 'v' AND n.oid = pg_my_temp_schema() AND c.relname = $1`,
-		tempViewName,
-	).Scan(&normalizedQuery); err != nil {
-		return "", err
-	}
-
-	client.normalizedViewQueries.Store(cacheKey, normalizedQuery)
-
-	return normalizedQuery, nil
-}
-
 func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData) bool {
-	if old == new {
-		return true
-	}
-
-	if new == "" {
-		return old == new
-	}
-
-	connectionID, ok := d.GetOk(internalProviderConnectionIDAttr)
-	if !ok {
-		return false
-	}
-
-	clientRegistryLock.Lock()
-	client, ok := clientRegistry[connectionID.(string)]
-	clientRegistryLock.Unlock()
-	if !ok {
-		return false
-	}
-
-	databaseName := client.databaseName
-	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
-		databaseName = databaseAttr.(string)
-	}
-
-	normalizedQuery, err := normalizeViewQuery(client, databaseName, new)
-	if err != nil {
-		log.Printf("[WARN] could not normalize postgresql_view query: %v", err)
-		return false
-	}
-
-	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
-	if !ok {
-		return false
-	}
-
-	return canonicalizeViewQuery(pgParsedQuery.(string)) == canonicalizeViewQuery(normalizedQuery)
+	return canonicalizeViewQuery(old) == canonicalizeViewQuery(new)
 }
 
 func canonicalizeViewQuery(query string) string {
-	canonicalQuery := strings.TrimSpace(query)
-	canonicalQuery = strings.TrimSuffix(canonicalQuery, ";")
-	return canonicalQuery
+	var b strings.Builder
+	inSingleQuotes := false
+	inDoubleQuotes := false
+	pendingSpace := false
+
+	for i := 0; i < len(query); i++ {
+		ch := query[i]
+
+		if inSingleQuotes {
+			b.WriteByte(ch)
+			if ch == '\'' && (i+1 >= len(query) || query[i+1] != '\'') {
+				inSingleQuotes = false
+			} else if ch == '\'' {
+				i++
+				b.WriteByte(query[i])
+			}
+			continue
+		}
+
+		if inDoubleQuotes {
+			b.WriteByte(ch)
+			if ch == '"' && (i+1 >= len(query) || query[i+1] != '"') {
+				inDoubleQuotes = false
+			} else if ch == '"' {
+				i++
+				b.WriteByte(query[i])
+			}
+			continue
+		}
+
+		switch {
+		case ch == '\'':
+			if pendingSpace && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			pendingSpace = false
+			inSingleQuotes = true
+			b.WriteByte(ch)
+		case ch == '"':
+			if pendingSpace && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			pendingSpace = false
+			inDoubleQuotes = true
+			b.WriteByte(ch)
+		case ch == ';':
+			continue
+		case ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ':
+			pendingSpace = true
+		default:
+			if pendingSpace && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			pendingSpace = false
+			if ch >= 'A' && ch <= 'Z' {
+				ch = ch - 'A' + 'a'
+			}
+			b.WriteByte(ch)
+		}
+	}
+
+	return strings.TrimSpace(b.String())
 }
