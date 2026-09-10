@@ -75,8 +75,7 @@ func resourcePostgreSQLView() *schema.Resource {
 			},
 			viewQueryAttr: {
 				Type:        schema.TypeString,
-				Optional:    true,
-				Computed:    true,
+				Required:    true,
 				Description: "The query of the view.",
 			},
 			viewWithCheckOptionAttr: {
