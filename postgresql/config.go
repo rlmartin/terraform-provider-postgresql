@@ -52,8 +52,8 @@ const (
 )
 
 var (
-	dbRegistryLock sync.Mutex
-	dbRegistry     map[string]*DBConnection = make(map[string]*DBConnection, 1)
+	dbRegistryLock     sync.Mutex
+	dbRegistry         map[string]*DBConnection = make(map[string]*DBConnection, 1)
 	clientRegistryLock sync.Mutex
 	clientRegistry     map[string]*Client = make(map[string]*Client, 1)
 
