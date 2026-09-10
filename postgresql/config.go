@@ -54,7 +54,7 @@ const (
 var (
 	dbRegistryLock     sync.Mutex
 	dbRegistry         map[string]*DBConnection = make(map[string]*DBConnection, 1)
-	clientRegistryLock sync.Mutex
+	clientRegistryLock sync.RWMutex
 	clientRegistry     map[string]*Client = make(map[string]*Client, 1)
 
 	// Mapping of feature flags to versions

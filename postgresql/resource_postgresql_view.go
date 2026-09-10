@@ -327,11 +327,7 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 		}
 	}
 	d.Set(internalTFParsedQueryAttr, normalizedTFQuery)
-	normalizationClient := db.client.config.NewClient(databaseName)
-	clientRegistryLock.Lock()
-	clientRegistry[normalizationClient.connectionID] = normalizationClient
-	clientRegistryLock.Unlock()
-	d.Set(internalProviderConnectionIDAttr, normalizationClient.connectionID)
+	d.Set(internalProviderConnectionIDAttr, db.client.connectionID)
 
 	d.SetId(viewID)
 
@@ -467,9 +463,9 @@ func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData
 		return old == new
 	}
 
-	clientRegistryLock.Lock()
+	clientRegistryLock.RLock()
 	client, ok := clientRegistry[connectionID.(string)]
-	clientRegistryLock.Unlock()
+	clientRegistryLock.RUnlock()
 	if !ok {
 		return old == new
 	}
