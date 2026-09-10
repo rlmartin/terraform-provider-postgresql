@@ -3,6 +3,7 @@ package postgresql
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -92,6 +93,11 @@ resource "postgresql_view" "case_sensitive_view_name" {
 }
 
 func TestAccPostgresqlView_QueryWithDoubleQuotes(t *testing.T) {
+	importDatabase := os.Getenv("PGDATABASE")
+	if importDatabase == "" {
+		importDatabase = "postgres"
+	}
+
 	config := `
 resource "postgresql_view" "double_quotes_query_view" {
     name = "double_quotes_query_view"
@@ -127,6 +133,7 @@ SELECT 1 AS "One", 2 AS two;
 					}
 				},
 				Config:             config,
+				ImportStateId:      fmt.Sprintf("%s.public.double_quotes_query_view", importDatabase),
 				ResourceName:       "postgresql_view.double_quotes_query_view",
 				ImportState:        true,
 				ImportStatePersist: true,
