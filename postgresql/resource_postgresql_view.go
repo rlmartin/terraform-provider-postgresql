@@ -8,7 +8,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -364,7 +363,12 @@ func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDi
 	}
 
 	oldQuery, _ := d.GetChange(viewQueryAttr)
-	return d.SetNew(viewQueryAttr, oldQuery.(string))
+	oldQueryStr, ok := oldQuery.(string)
+	if !ok {
+		return nil
+	}
+
+	return d.SetNew(viewQueryAttr, oldQueryStr)
 }
 
 func parseView(viewInfo ViewInfo) (PGView, error) {
@@ -494,7 +498,7 @@ func normalizeViewQuery(client *Client, databaseName string, query string) (stri
 	trimmedQuery := strings.TrimSpace(query)
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 
-	tempViewName := fmt.Sprintf("terraform_provider_postgresql_view_%d", time.Now().UnixNano())
+	tempViewName := "terraform_provider_postgresql_view_normalize"
 	createSQL := fmt.Sprintf(
 		"CREATE TEMP VIEW %s AS\n%s",
 		pq.QuoteIdentifier(tempViewName),
