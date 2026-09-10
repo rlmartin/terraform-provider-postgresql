@@ -329,9 +329,6 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(internalTFParsedQueryAttr, normalizedTFQuery)
 	normalizationClient := db.client.config.NewClient(databaseName)
 	clientRegistryLock.Lock()
-	if len(clientRegistry) >= clientRegistryLimit {
-		clientRegistry = make(map[string]*Client, 1)
-	}
 	clientRegistry[normalizationClient.connectionID] = normalizationClient
 	clientRegistryLock.Unlock()
 	d.Set(internalProviderConnectionIDAttr, normalizationClient.connectionID)

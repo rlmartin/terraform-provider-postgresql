@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -133,8 +134,6 @@ var (
 	}
 )
 
-const clientRegistryLimit = 32
-
 type DBConnection struct {
 	*sql.DB
 
@@ -226,7 +225,9 @@ func (c *Config) connectionID(database string) string {
 		c.GCPIAMImpersonateServiceAccount,
 	}
 
-	return strings.Join(parts, "\x00")
+	connectionID := strings.Join(parts, "\x00")
+	connectionFingerprint := sha256.Sum256([]byte(connectionID))
+	return fmt.Sprintf("%x", connectionFingerprint)
 }
 
 // featureSupported returns true if a given feature is supported or not.  This

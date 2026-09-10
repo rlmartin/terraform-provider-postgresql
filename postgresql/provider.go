@@ -405,9 +405,6 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	client := config.NewClient(d.Get("database").(string))
 
 	clientRegistryLock.Lock()
-	if len(clientRegistry) >= clientRegistryLimit {
-		clientRegistry = make(map[string]*Client, 1)
-	}
 	clientRegistry[client.connectionID] = client
 	clientRegistryLock.Unlock()
 
