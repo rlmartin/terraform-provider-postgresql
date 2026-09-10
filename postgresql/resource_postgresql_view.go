@@ -39,11 +39,11 @@ const (
 
 func resourcePostgreSQLView() *schema.Resource {
 	return &schema.Resource{
-		Create: PGResourceFunc(resourcePostgreSQLViewCreate),
-		Read:   PGResourceFunc(resourcePostgreSQLViewRead),
-		Update: PGResourceFunc(resourcePostgreSQLViewUpdate),
-		Delete: PGResourceFunc(resourcePostgreSQLViewDelete),
-		Exists: PGResourceExistsFunc(resourcePostgreSQLViewExists),
+		Create:        PGResourceFunc(resourcePostgreSQLViewCreate),
+		Read:          PGResourceFunc(resourcePostgreSQLViewRead),
+		Update:        PGResourceFunc(resourcePostgreSQLViewUpdate),
+		Delete:        PGResourceFunc(resourcePostgreSQLViewDelete),
+		Exists:        PGResourceExistsFunc(resourcePostgreSQLViewExists),
 		CustomizeDiff: resourcePostgreSQLViewCustomizeDiff,
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
