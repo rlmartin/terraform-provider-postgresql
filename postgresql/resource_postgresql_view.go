@@ -333,6 +333,10 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 }
 
 func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
+	if !d.HasChange(viewQueryAttr) {
+		return nil
+	}
+
 	if !d.NewValueKnown(viewQueryAttr) {
 		return nil
 	}
@@ -498,18 +502,24 @@ func normalizeViewQuery(client *Client, databaseName string, query string) (stri
 	trimmedQuery := strings.TrimSpace(query)
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 
-	tempViewName := "terraform_provider_postgresql_view_normalize"
-	createSQL := fmt.Sprintf(
-		"CREATE TEMP VIEW %s AS\n%s",
-		pq.QuoteIdentifier(tempViewName),
-		trimmedQuery,
-	)
-
 	txn, err := startTransaction(client, databaseName)
 	if err != nil {
 		return "", err
 	}
 	defer deferredRollback(txn)
+
+	var backendPID int
+	var transactionID int64
+	if err := txn.QueryRow("SELECT pg_backend_pid(), txid_current()").Scan(&backendPID, &transactionID); err != nil {
+		return "", err
+	}
+
+	tempViewName := fmt.Sprintf("terraform_provider_postgresql_view_%d_%d", backendPID, transactionID)
+	createSQL := fmt.Sprintf(
+		"CREATE TEMP VIEW %s AS\n%s",
+		pq.QuoteIdentifier(tempViewName),
+		trimmedQuery,
+	)
 
 	if _, err := txn.Exec(createSQL); err != nil {
 		return "", err
