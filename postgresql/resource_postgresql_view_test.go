@@ -144,8 +144,9 @@ SELECT 1 AS "One", 2 AS two;
 				},
 			},
 			{
-				Config:   config,
-				PlanOnly: true,
+				Config:             config,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
 			},
 		},
 	})

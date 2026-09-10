@@ -8,6 +8,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -35,6 +36,8 @@ const (
 	// Stores the last updated parsed/rewritten query has been recorded in Terraform.
 	internalTFParsedQueryAttr = "internal_tf_parsed_query"
 )
+
+var normalizedViewQueryCache sync.Map
 
 func resourcePostgreSQLView() *schema.Resource {
 	return &schema.Resource{
@@ -332,6 +335,10 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 }
 
 func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
+	if d.Id() == "" {
+		return nil
+	}
+
 	if !d.HasChange(viewQueryAttr) {
 		return nil
 	}
@@ -342,6 +349,11 @@ func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDi
 
 	query := d.Get(viewQueryAttr).(string)
 	if query == "" {
+		return nil
+	}
+
+	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
+	if !ok {
 		return nil
 	}
 
@@ -360,8 +372,7 @@ func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDi
 		return err
 	}
 
-	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
-	if !ok || pgParsedQuery.(string) != normalizedQuery {
+	if pgParsedQuery.(string) != normalizedQuery {
 		return nil
 	}
 
@@ -500,6 +511,11 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 func normalizeViewQuery(client *Client, databaseName string, query string) (string, error) {
 	trimmedQuery := strings.TrimSpace(query)
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
+	cacheKey := fmt.Sprintf("%s\x00%s", databaseName, trimmedQuery)
+
+	if cachedQuery, ok := normalizedViewQueryCache.Load(cacheKey); ok {
+		return cachedQuery.(string), nil
+	}
 
 	txn, err := startTransaction(client, databaseName)
 	if err != nil {
@@ -534,6 +550,8 @@ func normalizeViewQuery(client *Client, databaseName string, query string) (stri
 	).Scan(&normalizedQuery); err != nil {
 		return "", err
 	}
+
+	normalizedViewQueryCache.Store(cacheKey, normalizedQuery)
 
 	return normalizedQuery, nil
 }
