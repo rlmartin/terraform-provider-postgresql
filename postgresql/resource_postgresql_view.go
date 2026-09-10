@@ -546,5 +546,11 @@ func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData
 		return false
 	}
 
-	return pgParsedQuery.(string) == normalizedQuery
+	return canonicalizeViewQuery(pgParsedQuery.(string)) == canonicalizeViewQuery(normalizedQuery)
+}
+
+func canonicalizeViewQuery(query string) string {
+	canonicalQuery := strings.TrimSpace(query)
+	canonicalQuery = strings.TrimSuffix(canonicalQuery, ";")
+	return canonicalQuery
 }

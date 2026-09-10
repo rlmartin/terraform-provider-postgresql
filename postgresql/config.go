@@ -2,7 +2,6 @@ package postgresql
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -207,19 +206,27 @@ type Client struct {
 
 // NewClient returns client config for the specified database.
 func (c *Config) NewClient(database string) *Client {
-	connectionFingerprint := sha256.Sum256([]byte(c.connStr(database)))
-
-	client := &Client{
+	return &Client{
 		config:       *c,
 		databaseName: database,
-		connectionID: fmt.Sprintf("%x", connectionFingerprint),
+		connectionID: c.connectionID(database),
+	}
+}
+
+func (c *Config) connectionID(database string) string {
+	parts := []string{
+		c.Scheme,
+		c.Host,
+		strconv.Itoa(c.Port),
+		c.Username,
+		c.DatabaseUsername,
+		database,
+		c.SSLMode,
+		c.SSLRootCertPath,
+		c.GCPIAMImpersonateServiceAccount,
 	}
 
-	clientRegistryLock.Lock()
-	clientRegistry[client.connectionID] = client
-	clientRegistryLock.Unlock()
-
-	return client
+	return strings.Join(parts, "\x00")
 }
 
 // featureSupported returns true if a given feature is supported or not.  This
