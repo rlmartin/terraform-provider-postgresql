@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -53,6 +54,8 @@ const (
 var (
 	dbRegistryLock sync.Mutex
 	dbRegistry     map[string]*DBConnection = make(map[string]*DBConnection, 1)
+	clientRegistryLock sync.Mutex
+	clientRegistry     map[string]*Client = make(map[string]*Client, 1)
 
 	// Mapping of feature flags to versions
 	featureSupported = map[featureName]semver.Range{
@@ -197,14 +200,26 @@ type Client struct {
 	config Config
 
 	databaseName string
+	connectionID string
+
+	normalizedViewQueries sync.Map
 }
 
 // NewClient returns client config for the specified database.
 func (c *Config) NewClient(database string) *Client {
-	return &Client{
+	connectionFingerprint := sha256.Sum256([]byte(c.connStr(database)))
+
+	client := &Client{
 		config:       *c,
 		databaseName: database,
+		connectionID: fmt.Sprintf("%x", connectionFingerprint),
 	}
+
+	clientRegistryLock.Lock()
+	clientRegistry[client.connectionID] = client
+	clientRegistryLock.Unlock()
+
+	return client
 }
 
 // featureSupported returns true if a given feature is supported or not.  This

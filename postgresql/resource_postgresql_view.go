@@ -2,13 +2,11 @@ package postgresql
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -35,18 +33,17 @@ const (
 	internalPGParsedQueryAttr = "internal_pg_parsed_query"
 	// Stores the last updated parsed/rewritten query has been recorded in Terraform.
 	internalTFParsedQueryAttr = "internal_tf_parsed_query"
+	// Stores the provider connection key used to access the current database.
+	internalProviderConnectionIDAttr = "internal_provider_connection_id"
 )
-
-var normalizedViewQueryCache sync.Map
 
 func resourcePostgreSQLView() *schema.Resource {
 	return &schema.Resource{
-		Create:        PGResourceFunc(resourcePostgreSQLViewCreate),
-		Read:          PGResourceFunc(resourcePostgreSQLViewRead),
-		Update:        PGResourceFunc(resourcePostgreSQLViewUpdate),
-		Delete:        PGResourceFunc(resourcePostgreSQLViewDelete),
-		Exists:        PGResourceExistsFunc(resourcePostgreSQLViewExists),
-		CustomizeDiff: resourcePostgreSQLViewCustomizeDiff,
+		Create: PGResourceFunc(resourcePostgreSQLViewCreate),
+		Read:   PGResourceFunc(resourcePostgreSQLViewRead),
+		Update: PGResourceFunc(resourcePostgreSQLViewUpdate),
+		Delete: PGResourceFunc(resourcePostgreSQLViewDelete),
+		Exists: PGResourceExistsFunc(resourcePostgreSQLViewExists),
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
@@ -80,6 +77,8 @@ func resourcePostgreSQLView() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				Description: "The query of the view.",
+
+				DiffSuppressFunc: viewQueryDiffSuppressFunc,
 			},
 			viewWithCheckOptionAttr: {
 				Type:             schema.TypeString,
@@ -111,6 +110,10 @@ func resourcePostgreSQLView() *schema.Resource {
 				Computed: true,
 			},
 			internalTFParsedQueryAttr: {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
+			internalProviderConnectionIDAttr: {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
@@ -328,61 +331,11 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	}
 	// Internal states
 	d.Set(internalPGParsedQueryAttr, pgView.Query)
+	d.Set(internalProviderConnectionIDAttr, db.client.connectionID)
 
 	d.SetId(viewID)
 
 	return nil
-}
-
-func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
-	if d.Id() == "" {
-		return nil
-	}
-
-	if !d.HasChange(viewQueryAttr) {
-		return nil
-	}
-
-	if !d.NewValueKnown(viewQueryAttr) {
-		return nil
-	}
-
-	query := d.Get(viewQueryAttr).(string)
-	if query == "" {
-		return nil
-	}
-
-	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
-	if !ok {
-		return nil
-	}
-
-	client := meta.(*Client)
-	databaseName := client.databaseName
-	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
-		databaseName = databaseAttr.(string)
-	}
-
-	normalizedQuery, err := normalizeViewQuery(client, databaseName, query)
-	if err != nil {
-		return err
-	}
-
-	if err := d.SetNew(internalTFParsedQueryAttr, normalizedQuery); err != nil {
-		return err
-	}
-
-	if pgParsedQuery.(string) != normalizedQuery {
-		return nil
-	}
-
-	oldQuery, _ := d.GetChange(viewQueryAttr)
-	oldQueryStr, ok := oldQuery.(string)
-	if !ok {
-		return nil
-	}
-
-	return d.SetNew(viewQueryAttr, oldQueryStr)
 }
 
 func parseView(viewInfo ViewInfo) (PGView, error) {
@@ -513,7 +466,7 @@ func normalizeViewQuery(client *Client, databaseName string, query string) (stri
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 	cacheKey := fmt.Sprintf("%s\x00%s", databaseName, trimmedQuery)
 
-	if cachedQuery, ok := normalizedViewQueryCache.Load(cacheKey); ok {
+	if cachedQuery, ok := client.normalizedViewQueries.Load(cacheKey); ok {
 		return cachedQuery.(string), nil
 	}
 
@@ -551,7 +504,47 @@ func normalizeViewQuery(client *Client, databaseName string, query string) (stri
 		return "", err
 	}
 
-	normalizedViewQueryCache.Store(cacheKey, normalizedQuery)
+	client.normalizedViewQueries.Store(cacheKey, normalizedQuery)
 
 	return normalizedQuery, nil
+}
+
+func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData) bool {
+	if old == new {
+		return true
+	}
+
+	if new == "" {
+		return old == new
+	}
+
+	connectionID, ok := d.GetOk(internalProviderConnectionIDAttr)
+	if !ok {
+		return false
+	}
+
+	clientRegistryLock.Lock()
+	client, ok := clientRegistry[connectionID.(string)]
+	clientRegistryLock.Unlock()
+	if !ok {
+		return false
+	}
+
+	databaseName := client.databaseName
+	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
+		databaseName = databaseAttr.(string)
+	}
+
+	normalizedQuery, err := normalizeViewQuery(client, databaseName, new)
+	if err != nil {
+		log.Printf("[WARN] could not normalize postgresql_view query: %v", err)
+		return false
+	}
+
+	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
+	if !ok {
+		return false
+	}
+
+	return pgParsedQuery.(string) == normalizedQuery
 }
