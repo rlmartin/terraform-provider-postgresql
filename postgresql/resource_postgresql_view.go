@@ -33,6 +33,8 @@ const (
 	internalPGParsedQueryAttr = "internal_pg_parsed_query"
 	// Stores the last updated parsed/rewritten query has been recorded in Terraform.
 	internalTFParsedQueryAttr = "internal_tf_parsed_query"
+	// Stores the provider connection key used to normalize the configured query.
+	internalProviderConnectionIDAttr = "internal_provider_connection_id"
 )
 
 func resourcePostgreSQLView() *schema.Resource {
@@ -75,6 +77,8 @@ func resourcePostgreSQLView() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				Description: "The query of the view.",
+
+				DiffSuppressFunc: viewQueryDiffSuppressFunc,
 			},
 			viewWithCheckOptionAttr: {
 				Type:             schema.TypeString,
@@ -109,6 +113,10 @@ func resourcePostgreSQLView() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			internalProviderConnectionIDAttr: {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 		},
 	}
 }
@@ -125,12 +133,7 @@ func resourcePostgreSQLViewCreate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	if err := resourcePostgreSQLViewReadImpl(db, d); err != nil {
-		return err
-	}
-
-	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
-	return nil
+	return resourcePostgreSQLViewReadImpl(db, d)
 }
 
 func resourcePostgreSQLViewRead(db *DBConnection, d *schema.ResourceData) error {
@@ -141,13 +144,7 @@ func resourcePostgreSQLViewRead(db *DBConnection, d *schema.ResourceData) error 
 		)
 	}
 
-	err := resourcePostgreSQLViewReadImpl(db, d)
-	if err != nil {
-		return err
-	}
-
-	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
-	return nil
+	return resourcePostgreSQLViewReadImpl(db, d)
 }
 
 func resourcePostgreSQLViewUpdate(db *DBConnection, d *schema.ResourceData) error {
@@ -162,12 +159,7 @@ func resourcePostgreSQLViewUpdate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	if err := resourcePostgreSQLViewReadImpl(db, d); err != nil {
-		return err
-	}
-
-	d.Set(internalTFParsedQueryAttr, d.Get(internalPGParsedQueryAttr).(string))
-	return nil
+	return resourcePostgreSQLViewReadImpl(db, d)
 }
 
 func resourcePostgreSQLViewDelete(db *DBConnection, d *schema.ResourceData) error {
@@ -314,7 +306,11 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(viewDatabaseAttr, pgView.Database)
 	d.Set(viewSchemaAttr, pgView.Schema)
 	d.Set(viewNameAttr, pgView.Name)
-	d.Set(viewQueryAttr, d.Get(viewQueryAttr).(string))
+	viewQuery := d.Get(viewQueryAttr).(string)
+	if viewQuery == "" {
+		viewQuery = pgView.Query
+	}
+	d.Set(viewQueryAttr, viewQuery)
 	d.Set(viewWithCheckOptionAttr, pgView.WithCheckOption)
 	d.Set(viewWithSecurityBarrierAttr, pgView.WithSecurityBarrier)
 	d.Set(viewWithSecurityInvokerAttr, pgView.WithSecurityInvoker)
@@ -323,6 +319,15 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	}
 	// Internal states
 	d.Set(internalPGParsedQueryAttr, pgView.Query)
+	normalizedTFQuery := pgView.Query
+	if viewQuery != pgView.Query {
+		normalizedTFQuery, err = canonicalizeViewQuery(db.client, databaseName, viewQuery)
+		if err != nil {
+			return fmt.Errorf("error normalizing view query: %w", err)
+		}
+	}
+	d.Set(internalTFParsedQueryAttr, normalizedTFQuery)
+	d.Set(internalProviderConnectionIDAttr, db.client.connectionID)
 
 	d.SetId(viewID)
 
@@ -391,6 +396,9 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 
 	name := d.Get(viewNameAttr).(string)
 	query := d.Get(viewQueryAttr).(string)
+	if query == "" {
+		return fmt.Errorf("the query of the view must be set")
+	}
 
 	fullViewNameBuffer := bytes.NewBufferString(pq.QuoteIdentifier(schemaName))
 	fullViewNameBuffer.WriteString(".")
@@ -447,4 +455,82 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	}
 
 	return nil
+}
+
+func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData) bool {
+	connectionID, ok := d.GetOk(internalProviderConnectionIDAttr)
+	if !ok {
+		return old == new
+	}
+
+	clientRegistryLock.RLock()
+	client, ok := clientRegistry[connectionID.(string)]
+	clientRegistryLock.RUnlock()
+	if !ok {
+		return old == new
+	}
+
+	databaseName := client.databaseName
+	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
+		databaseName = databaseAttr.(string)
+	}
+
+	normalizedQuery, err := canonicalizeViewQuery(client, databaseName, new)
+	if err != nil {
+		log.Printf("[WARN] could not normalize postgresql_view query: %v", err)
+		return old == new
+	}
+
+	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
+	if !ok {
+		return old == new
+	}
+
+	tfParsedQuery, ok := d.GetOk(internalTFParsedQueryAttr)
+	if ok && tfParsedQuery.(string) != "" {
+		return normalizedQuery == tfParsedQuery.(string)
+	}
+
+	return normalizedQuery == pgParsedQuery.(string)
+}
+
+func canonicalizeViewQuery(client *Client, databaseName string, query string) (string, error) {
+	trimmedQuery := strings.TrimSpace(query)
+	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
+
+	txn, err := startTransaction(client, databaseName)
+	if err != nil {
+		return "", err
+	}
+	defer deferredRollback(txn)
+
+	var backendPID int
+	var transactionID int64
+	if err := txn.QueryRow("SELECT pg_backend_pid(), txid_current()").Scan(&backendPID, &transactionID); err != nil {
+		return "", err
+	}
+
+	tempViewName := fmt.Sprintf("terraform_provider_postgresql_view_%d_%d", backendPID, transactionID)
+	createSQL := fmt.Sprintf(
+		"CREATE TEMP VIEW %s AS\n%s",
+		pq.QuoteIdentifier(tempViewName),
+		trimmedQuery,
+	)
+
+	if _, err := txn.Exec(createSQL); err != nil {
+		return "", err
+	}
+
+	var normalizedQuery string
+	if err := txn.QueryRow(
+		`SELECT pg_get_viewdef(c.oid, true)
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relkind = 'v' AND n.oid = pg_my_temp_schema() AND c.relname = $1`,
+		tempViewName,
+	).Scan(&normalizedQuery); err != nil {
+		return "", err
+	}
+
+	return normalizedQuery, nil
 }

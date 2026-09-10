@@ -3,6 +3,7 @@ package postgresql
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -92,6 +93,11 @@ resource "postgresql_view" "case_sensitive_view_name" {
 }
 
 func TestAccPostgresqlView_QueryWithDoubleQuotes(t *testing.T) {
+	importDatabase := os.Getenv("PGDATABASE")
+	if importDatabase == "" {
+		importDatabase = "postgres"
+	}
+
 	config := `
 resource "postgresql_view" "double_quotes_query_view" {
     name = "double_quotes_query_view"
@@ -110,7 +116,41 @@ SELECT 1 AS "One", 2 AS two;
 		CheckDestroy: testAccCheckPostgresqlViewDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: config,
+				PreConfig: func() {
+					client := testAccProvider.Meta().(*Client)
+					txn, err := startTransaction(client, "")
+					if err != nil {
+						t.Fatalf("could not start transaction: %v", err)
+					}
+					defer deferredRollback(txn)
+
+					if _, err := txn.Exec(`CREATE VIEW "public"."double_quotes_query_view" AS SELECT 1 AS "One", 2 AS two;`); err != nil {
+						t.Fatalf("could not create test view: %v", err)
+					}
+
+					if err := txn.Commit(); err != nil {
+						t.Fatalf("could not commit test view creation: %v", err)
+					}
+				},
+				Config:             config,
+				ImportStateId:      fmt.Sprintf("%s.public.double_quotes_query_view", importDatabase),
+				ResourceName:       "postgresql_view.double_quotes_query_view",
+				ImportState:        true,
+				ImportStatePersist: true,
+				ImportStateCheck: func(states []*terraform.InstanceState) error {
+					if len(states) != 1 {
+						return fmt.Errorf("expected 1 imported state, got %d", len(states))
+					}
+					if states[0].Attributes[viewQueryAttr] == "" {
+						return fmt.Errorf("expected imported query state to be populated")
+					}
+					return nil
+				},
+			},
+			{
+				Config:             config,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPostgresqlViewExists("postgresql_view.double_quotes_query_view", ""),
 					resource.TestCheckResourceAttr(
