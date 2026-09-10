@@ -110,26 +110,23 @@ SELECT 1 AS "One", 2 AS two;
 		CheckDestroy: testAccCheckPostgresqlViewDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: config,
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlViewExists("postgresql_view.double_quotes_query_view", ""),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "schema", "public"),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "name", "double_quotes_query_view"),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "query", "SELECT 1 AS \"One\", 2 AS two;\n"),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "with_check_option", ""),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "with_security_barrier", "false"),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "with_security_invoker", "false"),
-					resource.TestCheckResourceAttr(
-						"postgresql_view.double_quotes_query_view", "drop_cascade", "false"),
-				),
-			},
-			{
+				PreConfig: func() {
+					client := testAccProvider.Meta().(*Client)
+					txn, err := startTransaction(client, "")
+					if err != nil {
+						t.Fatalf("could not start transaction: %v", err)
+					}
+					defer deferredRollback(txn)
+
+					if _, err := txn.Exec(`CREATE VIEW "public"."double_quotes_query_view" AS SELECT 1 AS "One", 2 AS two;`); err != nil {
+						t.Fatalf("could not create test view: %v", err)
+					}
+
+					if err := txn.Commit(); err != nil {
+						t.Fatalf("could not commit test view creation: %v", err)
+					}
+				},
+				Config:             config,
 				ResourceName:       "postgresql_view.double_quotes_query_view",
 				ImportState:        true,
 				ImportStatePersist: true,
@@ -147,6 +144,23 @@ SELECT 1 AS "One", 2 AS two;
 				Config:             config,
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: false,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlViewExists("postgresql_view.double_quotes_query_view", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "schema", "public"),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "name", "double_quotes_query_view"),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "query", "SELECT 1 AS \"One\", 2 AS two;\n"),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "with_check_option", ""),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "with_security_barrier", "false"),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "with_security_invoker", "false"),
+					resource.TestCheckResourceAttr(
+						"postgresql_view.double_quotes_query_view", "drop_cascade", "false"),
+				),
 			},
 		},
 	})
