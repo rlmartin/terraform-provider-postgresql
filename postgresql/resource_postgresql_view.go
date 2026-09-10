@@ -493,6 +493,11 @@ func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData
 		return old == new
 	}
 
+	tfParsedQuery, ok := d.GetOk(internalTFParsedQueryAttr)
+	if ok && tfParsedQuery.(string) != "" {
+		return normalizedQuery == tfParsedQuery.(string)
+	}
+
 	return normalizedQuery == pgParsedQuery.(string)
 }
 
