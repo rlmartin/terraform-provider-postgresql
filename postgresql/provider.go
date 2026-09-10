@@ -402,5 +402,14 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		}
 	}
 
-	return config.NewClient(d.Get("database").(string)), nil
+	client := config.NewClient(d.Get("database").(string))
+
+	clientRegistryLock.Lock()
+	if len(clientRegistry) >= clientRegistryLimit {
+		clientRegistry = make(map[string]*Client, 1)
+	}
+	clientRegistry[client.connectionID] = client
+	clientRegistryLock.Unlock()
+
+	return client, nil
 }

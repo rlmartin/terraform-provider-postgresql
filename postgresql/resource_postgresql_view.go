@@ -327,7 +327,14 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 		}
 	}
 	d.Set(internalTFParsedQueryAttr, normalizedTFQuery)
-	d.Set(internalProviderConnectionIDAttr, db.client.config.connectionID(databaseName))
+	normalizationClient := db.client.config.NewClient(databaseName)
+	clientRegistryLock.Lock()
+	if len(clientRegistry) >= clientRegistryLimit {
+		clientRegistry = make(map[string]*Client, 1)
+	}
+	clientRegistry[normalizationClient.connectionID] = normalizationClient
+	clientRegistryLock.Unlock()
+	d.Set(internalProviderConnectionIDAttr, normalizationClient.connectionID)
 
 	d.SetId(viewID)
 
@@ -475,7 +482,7 @@ func viewQueryDiffSuppressFunc(_ string, old, new string, d *schema.ResourceData
 		databaseName = databaseAttr.(string)
 	}
 
-	normalizedQuery, err := canonicalizeViewQuery(client, databaseName, d.Get(viewQueryAttr).(string))
+	normalizedQuery, err := canonicalizeViewQuery(client, databaseName, new)
 	if err != nil {
 		log.Printf("[WARN] could not normalize postgresql_view query: %v", err)
 		return old == new

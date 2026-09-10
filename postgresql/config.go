@@ -133,6 +133,8 @@ var (
 	}
 )
 
+const clientRegistryLimit = 32
+
 type DBConnection struct {
 	*sql.DB
 
@@ -204,17 +206,11 @@ type Client struct {
 
 // NewClient returns client config for the specified database.
 func (c *Config) NewClient(database string) *Client {
-	client := &Client{
+	return &Client{
 		config:       *c,
 		databaseName: database,
 		connectionID: c.connectionID(database),
 	}
-
-	clientRegistryLock.Lock()
-	clientRegistry[client.connectionID] = client
-	clientRegistryLock.Unlock()
-
-	return client
 }
 
 func (c *Config) connectionID(database string) string {
