@@ -141,8 +141,8 @@ SELECT 1 AS "One", 2 AS two;
 					if len(states) != 1 {
 						return fmt.Errorf("expected 1 imported state, got %d", len(states))
 					}
-					if states[0].Attributes[viewQueryAttr] != "" {
-						return fmt.Errorf("expected imported query state to remain empty")
+					if states[0].Attributes[viewQueryAttr] == "" {
+						return fmt.Errorf("expected imported query state to be populated")
 					}
 					return nil
 				},
