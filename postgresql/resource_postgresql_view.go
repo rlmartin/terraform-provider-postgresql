@@ -314,7 +314,11 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(viewDatabaseAttr, pgView.Database)
 	d.Set(viewSchemaAttr, pgView.Schema)
 	d.Set(viewNameAttr, pgView.Name)
-	d.Set(viewQueryAttr, d.Get(viewQueryAttr).(string))
+	viewQuery := d.Get(viewQueryAttr).(string)
+	if viewQuery == "" {
+		viewQuery = pgView.Query
+	}
+	d.Set(viewQueryAttr, viewQuery)
 	d.Set(viewWithCheckOptionAttr, pgView.WithCheckOption)
 	d.Set(viewWithSecurityBarrierAttr, pgView.WithSecurityBarrier)
 	d.Set(viewWithSecurityInvokerAttr, pgView.WithSecurityInvoker)

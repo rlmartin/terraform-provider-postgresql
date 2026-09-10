@@ -129,6 +129,11 @@ SELECT 1 AS "One", 2 AS two;
 						"postgresql_view.double_quotes_query_view", "drop_cascade", "false"),
 				),
 			},
+			{
+				ResourceName:      "postgresql_view.double_quotes_query_view",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
 		},
 	})
 }
