@@ -130,9 +130,22 @@ SELECT 1 AS "One", 2 AS two;
 				),
 			},
 			{
-				ResourceName:      "postgresql_view.double_quotes_query_view",
-				ImportState:       true,
-				ImportStateVerify: true,
+				ResourceName:       "postgresql_view.double_quotes_query_view",
+				ImportState:        true,
+				ImportStatePersist: true,
+				ImportStateCheck: func(states []*terraform.InstanceState) error {
+					if len(states) != 1 {
+						return fmt.Errorf("expected 1 imported state, got %d", len(states))
+					}
+					if states[0].Attributes[viewQueryAttr] != "" {
+						return fmt.Errorf("expected imported query state to remain empty")
+					}
+					return nil
+				},
+			},
+			{
+				Config:   config,
+				PlanOnly: true,
 			},
 		},
 	})

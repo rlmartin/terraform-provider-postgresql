@@ -2,11 +2,13 @@ package postgresql
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -42,6 +44,7 @@ func resourcePostgreSQLView() *schema.Resource {
 		Update: PGResourceFunc(resourcePostgreSQLViewUpdate),
 		Delete: PGResourceFunc(resourcePostgreSQLViewDelete),
 		Exists: PGResourceExistsFunc(resourcePostgreSQLViewExists),
+		CustomizeDiff: resourcePostgreSQLViewCustomizeDiff,
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
@@ -73,7 +76,8 @@ func resourcePostgreSQLView() *schema.Resource {
 			},
 			viewQueryAttr: {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				Computed:    true,
 				Description: "The query of the view.",
 			},
 			viewWithCheckOptionAttr: {
@@ -314,11 +318,7 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(viewDatabaseAttr, pgView.Database)
 	d.Set(viewSchemaAttr, pgView.Schema)
 	d.Set(viewNameAttr, pgView.Name)
-	viewQuery := d.Get(viewQueryAttr).(string)
-	if viewQuery == "" {
-		viewQuery = pgView.Query
-	}
-	d.Set(viewQueryAttr, viewQuery)
+	d.Set(viewQueryAttr, d.Get(viewQueryAttr).(string))
 	d.Set(viewWithCheckOptionAttr, pgView.WithCheckOption)
 	d.Set(viewWithSecurityBarrierAttr, pgView.WithSecurityBarrier)
 	d.Set(viewWithSecurityInvokerAttr, pgView.WithSecurityInvoker)
@@ -331,6 +331,41 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.SetId(viewID)
 
 	return nil
+}
+
+func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
+	query := d.Get(viewQueryAttr).(string)
+	if query == "" {
+		return fmt.Errorf("the query of the view must be set")
+	}
+
+	client := meta.(*Client)
+	db, err := client.Connect()
+	if err != nil {
+		return err
+	}
+
+	databaseName := client.databaseName
+	if databaseAttr, ok := d.GetOk(viewDatabaseAttr); ok {
+		databaseName = databaseAttr.(string)
+	}
+
+	normalizedQuery, err := normalizeViewQuery(db, databaseName, query)
+	if err != nil {
+		return err
+	}
+
+	if err := d.SetNew(internalTFParsedQueryAttr, normalizedQuery); err != nil {
+		return err
+	}
+
+	pgParsedQuery, ok := d.GetOk(internalPGParsedQueryAttr)
+	if !ok || pgParsedQuery.(string) != normalizedQuery {
+		return nil
+	}
+
+	oldQuery, _ := d.GetChange(viewQueryAttr)
+	return d.SetNew(viewQueryAttr, oldQuery.(string))
 }
 
 func parseView(viewInfo ViewInfo) (PGView, error) {
@@ -395,6 +430,9 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 
 	name := d.Get(viewNameAttr).(string)
 	query := d.Get(viewQueryAttr).(string)
+	if query == "" {
+		return fmt.Errorf("the query of the view must be set")
+	}
 
 	fullViewNameBuffer := bytes.NewBufferString(pq.QuoteIdentifier(schemaName))
 	fullViewNameBuffer.WriteString(".")
@@ -451,4 +489,39 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	}
 
 	return nil
+}
+
+func normalizeViewQuery(db *DBConnection, databaseName string, query string) (string, error) {
+	trimmedQuery := strings.TrimSpace(query)
+	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
+
+	tempViewName := fmt.Sprintf("terraform_provider_postgresql_view_%d", time.Now().UnixNano())
+	createSQL := fmt.Sprintf(
+		"CREATE TEMP VIEW %s AS\n%s",
+		pq.QuoteIdentifier(tempViewName),
+		trimmedQuery,
+	)
+
+	txn, err := startTransaction(db.client, databaseName)
+	if err != nil {
+		return "", err
+	}
+	defer deferredRollback(txn)
+
+	if _, err := txn.Exec(createSQL); err != nil {
+		return "", err
+	}
+
+	var normalizedQuery string
+	if err := txn.QueryRow(
+		`SELECT pg_get_viewdef(c.oid, true)
+		FROM pg_class c
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE c.relkind = 'v' AND n.oid = pg_my_temp_schema() AND c.relname = $1`,
+		tempViewName,
+	).Scan(&normalizedQuery); err != nil {
+		return "", err
+	}
+
+	return normalizedQuery, nil
 }
