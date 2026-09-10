@@ -334,9 +334,13 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 }
 
 func resourcePostgreSQLViewCustomizeDiff(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
+	if !d.NewValueKnown(viewQueryAttr) {
+		return nil
+	}
+
 	query := d.Get(viewQueryAttr).(string)
 	if query == "" {
-		return fmt.Errorf("the query of the view must be set")
+		return nil
 	}
 
 	client := meta.(*Client)
