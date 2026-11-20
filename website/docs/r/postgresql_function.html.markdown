@@ -44,7 +44,7 @@ resource "postgresql_function" "before_insert" {
 }
 ```
 
-This defines the function. Attach it to a table separately with `CREATE TRIGGER`.
+This defines the function. Attach it to a table with the [`postgresql_trigger`](postgresql_trigger.html) resource.
 
 ## Argument Reference
 

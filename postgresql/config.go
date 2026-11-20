@@ -49,6 +49,7 @@ const (
 	featureTask
 	featureCreateRoleSelfGrant
 	featureSecurityLabel
+	featureTrigger
 )
 
 var (
@@ -126,6 +127,9 @@ var (
 		featureTask: semver.MustParseRange(">12.5.0"),
 
 		featureView: semver.MustParseRange(">15.0.0"),
+
+		// EXECUTE FUNCTION syntax was introduced in PostgreSQL 11.
+		featureTrigger: semver.MustParseRange(">=11.0.0"),
 
 		// New privileges rules in version 16
 		// https://www.postgresql.org/docs/16/release-16.html#RELEASE-16-PRIVILEGES
