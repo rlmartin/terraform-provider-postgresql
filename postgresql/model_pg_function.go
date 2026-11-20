@@ -100,7 +100,9 @@ func (pgFunction *PGFunction) FromResourceData(d *schema.ResourceData) error {
 		}
 	}
 
-	if v, ok := d.GetOk(funcReturnsAttr); ok {
+	if d.Get(funcTriggerAttr).(bool) {
+		pgFunction.Returns = "TRIGGER"
+	} else if v, ok := d.GetOk(funcReturnsAttr); ok {
 		pgFunction.Returns = v.(string)
 	} else {
 		pgFunction.Returns = argOutput
