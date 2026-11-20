@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ const (
 	funcArgAttr             = "arg"
 	funcLanguageAttr        = "language"
 	funcReturnsAttr         = "returns"
+	funcTriggerAttr         = "trigger"
 	funcDropCascadeAttr     = "drop_cascade"
 	funcDatabaseAttr        = "database"
 	funcParallelAttr        = "parallel"
@@ -46,6 +48,24 @@ func resourcePostgreSQLFunction() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
+		CustomizeDiff: func(_ context.Context, d *schema.ResourceDiff, _ interface{}) error {
+			if !d.Get(funcTriggerAttr).(bool) {
+				return nil
+			}
+			if _, ok := d.GetOk(funcArgAttr); ok {
+				return fmt.Errorf("arg is not supported for trigger functions")
+			}
+			if d.Get(funcStrictAttr).(bool) {
+				return fmt.Errorf("strict is not supported for trigger functions")
+			}
+			// Check configuration rather than state: returns is computed on read.
+			config := d.GetRawConfig()
+			if !config.IsNull() && !config.GetAttr(funcReturnsAttr).IsNull() {
+				return fmt.Errorf("returns must not be set for trigger functions; the return type is automatically TRIGGER")
+			}
+			return nil
+		},
+
 		Schema: map[string]*schema.Schema{
 			funcSchemaAttr: {
 				Type:        schema.TypeString,
@@ -61,6 +81,13 @@ func resourcePostgreSQLFunction() *schema.Resource {
 				Required:    true,
 				ForceNew:    true,
 				Description: "Name of the function.",
+			},
+			funcTriggerAttr: {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				ForceNew:    true,
+				Description: "Create a trigger function returning TRIGGER. Changing this value recreates the function.",
 			},
 			funcArgAttr: {
 				Type: schema.TypeList,
@@ -309,6 +336,7 @@ func resourcePostgreSQLFunctionReadImpl(db *DBConnection, d *schema.ResourceData
 	d.Set(funcSchemaAttr, pgFunction.Schema)
 	d.Set(funcLanguageAttr, pgFunction.Language)
 	d.Set(funcReturnsAttr, pgFunction.Returns)
+	d.Set(funcTriggerAttr, strings.EqualFold(pgFunction.Returns, "trigger"))
 	d.Set(funcBodyAttr, pgFunction.Body)
 	d.Set(funcSecurityDefinerAttr, pgFunction.SecurityDefiner)
 	d.Set(funcStrictAttr, pgFunction.Strict)

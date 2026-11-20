@@ -55,6 +55,26 @@ func TestFromResourceData(t *testing.T) {
 	})
 }
 
+func TestFromResourceDataTrigger(t *testing.T) {
+	for _, returns := range []string{"", "integer", "trigger"} {
+		t.Run(returns, func(t *testing.T) {
+			d := schema.TestResourceDataRaw(t, resourcePostgreSQLFunction().Schema, map[string]interface{}{
+				funcNameAttr:    "trigger_function",
+				funcBodyAttr:    "BEGIN RETURN NEW; END;",
+				funcTriggerAttr: true,
+				// A previous computed return type must not override trigger mode.
+				funcReturnsAttr: returns,
+			})
+			var function PGFunction
+			if err := function.FromResourceData(d); err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, "TRIGGER", function.Returns)
+			assert.Empty(t, function.Args)
+		})
+	}
+}
+
 func TestFromResourceDataWithArguments(t *testing.T) {
 	d := mockFunctionResourceData(t, PGFunction{
 		Name: "increment",

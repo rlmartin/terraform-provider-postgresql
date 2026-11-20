@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ const (
 	viewSchemaAttr              = "schema"
 	viewDatabaseAttr            = "database"
 	viewQueryAttr               = "query"
+	viewMaterializedAttr        = "materialized"
 	viewWithCheckOptionAttr     = "with_check_option"
 	viewWithSecurityBarrierAttr = "with_security_barrier"
 	viewWithSecurityInvokerAttr = "with_security_invoker"
@@ -48,6 +50,17 @@ func resourcePostgreSQLView() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
+		CustomizeDiff: func(_ context.Context, d *schema.ResourceDiff, _ interface{}) error {
+			if d.Get(viewMaterializedAttr).(bool) {
+				for _, attr := range []string{viewWithCheckOptionAttr, viewWithSecurityBarrierAttr, viewWithSecurityInvokerAttr} {
+					if _, ok := d.GetOk(attr); ok {
+						return fmt.Errorf("%s is not supported for materialized views", attr)
+					}
+				}
+			}
+			return nil
+		},
+
 		Schema: map[string]*schema.Schema{
 			viewDatabaseAttr: {
 				Type:        schema.TypeString,
@@ -72,6 +85,13 @@ func resourcePostgreSQLView() *schema.Resource {
 				Required:    true,
 				ForceNew:    true,
 				Description: "The name of the view.",
+			},
+			viewMaterializedAttr: {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				ForceNew:    true,
+				Description: "Create a materialized view. Changing this value recreates the view.",
 			},
 			viewQueryAttr: {
 				Type:        schema.TypeString,
@@ -179,7 +199,7 @@ func resourcePostgreSQLViewDelete(db *DBConnection, d *schema.ResourceData) erro
 	databaseName, schemaName, viewName := viewParts[0], viewParts[1], viewParts[2]
 	viewIdentifier := fmt.Sprintf("%s.%s", pq.QuoteIdentifier(schemaName), pq.QuoteIdentifier(viewName))
 
-	sql := fmt.Sprintf("DROP VIEW IF EXISTS %s %s", viewIdentifier, dropMode)
+	sql := fmt.Sprintf("DROP %s IF EXISTS %s %s", viewType(d), viewIdentifier, dropMode)
 	txn, err := startTransaction(db.client, databaseName)
 	if err != nil {
 		return err
@@ -233,6 +253,7 @@ func resourcePostgreSQLViewExists(db *DBConnection, d *schema.ResourceData) (boo
 }
 
 type PGView struct {
+	Materialized        bool
 	Database            string
 	Schema              string
 	Name                string
@@ -245,11 +266,12 @@ type PGView struct {
 }
 
 type ViewInfo struct {
-	Database string   `db:"database"`
-	Schema   string   `db:"schema"`
-	Name     string   `db:"name"`
-	Query    string   `db:"query"`
-	Options  []string `db:"options"`
+	Materialized bool     `db:"materialized"`
+	Database     string   `db:"database"`
+	Schema       string   `db:"schema"`
+	Name         string   `db:"name"`
+	Query        string   `db:"query"`
+	Options      []string `db:"options"`
 }
 
 func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) error {
@@ -272,10 +294,11 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 		`n.nspname AS schema, ` +
 		`c.relname AS name, ` +
 		`pg_get_viewdef(c.oid, true) AS query, ` +
-		`c.reloptions AS options ` +
+		`c.reloptions AS options, ` +
+		`c.relkind = 'm' AS materialized ` +
 		`FROM pg_class c ` +
 		`JOIN pg_namespace n ON c.relnamespace = n.oid ` +
-		`WHERE c.relkind = 'v' AND n.nspname = $1 AND c.relname = $2`
+		`WHERE c.relkind IN ('v', 'm') AND n.nspname = $1 AND c.relname = $2`
 	txn, err := startTransaction(db.client, databaseName)
 	if err != nil {
 		return err
@@ -284,7 +307,7 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 
 	viewIDParts := strings.Split(viewID, ".")
 	var viewInfo ViewInfo
-	err = txn.QueryRow(query, viewIDParts[1], viewIDParts[2]).Scan(&viewInfo.Database, &viewInfo.Schema, &viewInfo.Name, &viewInfo.Query, pq.Array(&viewInfo.Options))
+	err = txn.QueryRow(query, viewIDParts[1], viewIDParts[2]).Scan(&viewInfo.Database, &viewInfo.Schema, &viewInfo.Name, &viewInfo.Query, pq.Array(&viewInfo.Options), &viewInfo.Materialized)
 	switch {
 	case err == sql.ErrNoRows:
 		log.Printf("[WARN] PostgreSQL view: %s", viewID)
@@ -306,6 +329,7 @@ func resourcePostgreSQLViewReadImpl(db *DBConnection, d *schema.ResourceData) er
 	d.Set(viewDatabaseAttr, pgView.Database)
 	d.Set(viewSchemaAttr, pgView.Schema)
 	d.Set(viewNameAttr, pgView.Name)
+	d.Set(viewMaterializedAttr, pgView.Materialized)
 	viewQuery := d.Get(viewQueryAttr).(string)
 	if viewQuery == "" {
 		viewQuery = pgView.Query
@@ -340,6 +364,7 @@ func parseView(viewInfo ViewInfo) (PGView, error) {
 	pgView.Schema = viewInfo.Schema
 	pgView.Name = viewInfo.Name
 	pgView.Query = viewInfo.Query
+	pgView.Materialized = viewInfo.Materialized
 
 	// Parse options. There are 3 options:
 	// 1. check_option (enum) - [LOCAL | CASCADED]
@@ -388,6 +413,13 @@ func genViewID(db *DBConnection, d *schema.ResourceData) (string, error) {
 	return b.String(), nil
 }
 
+func viewType(d *schema.ResourceData) string {
+	if d.Get(viewMaterializedAttr).(bool) {
+		return "MATERIALIZED VIEW"
+	}
+	return "VIEW"
+}
+
 func createView(db *DBConnection, d *schema.ResourceData) error {
 	schemaName := "public"
 	if v, ok := d.GetOk(viewSchemaAttr); ok {
@@ -406,7 +438,7 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	fullViewName := fullViewNameBuffer.String()
 
 	// Construct the view
-	b := bytes.NewBufferString("CREATE VIEW ")
+	b := bytes.NewBufferString("CREATE " + viewType(d) + " ")
 	fmt.Fprint(b, fullViewName)
 
 	// With options
@@ -429,7 +461,7 @@ func createView(db *DBConnection, d *schema.ResourceData) error {
 	b.WriteRune(';')
 
 	// Drop view command
-	dropViewSqlBuffer := bytes.NewBufferString("DROP VIEW IF EXISTS ")
+	dropViewSqlBuffer := bytes.NewBufferString("DROP " + viewType(d) + " IF EXISTS ")
 	dropViewSqlBuffer.WriteString(fullViewName)
 	dropViewSqlBuffer.WriteString(" RESTRICT;")
 	dropViewSql := dropViewSqlBuffer.String()

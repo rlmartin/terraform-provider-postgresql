@@ -8,7 +8,7 @@ Creates and manages a view on a PostgreSQL server.
 
 # postgresql_view
 
-The `postgresql_view` resource creates and manages a view on a PostgreSQL server.
+The `postgresql_view` resource creates and manages a regular or materialized view on a PostgreSQL server.
 
 ## Usage
 
@@ -28,6 +28,16 @@ resource "postgresql_view" "aggregation_view" {
 }
 ```
 
+To create a materialized view:
+
+```hcl
+resource "postgresql_view" "materialized" {
+    name = "materialized_view"
+    materialized = true
+    query = "SELECT schemaname, tablename FROM pg_catalog.pg_tables;"
+}
+```
+
 ## Argument Reference
 
 - `database` - (Optional) The database where the view is located.
@@ -39,6 +49,12 @@ resource "postgresql_view" "aggregation_view" {
 - `name` - (Required) The name of the view.
 
 - `query` - (Required) The query.
+
+- `materialized` - (Optional) Create a materialized view. Default is false.
+  Changing this value recreates the view. Materialized views are populated on creation
+  and recreated when the query changes. Refresh data separately using `REFRESH MATERIALIZED VIEW`.
+  `with_check_option`, `with_security_barrier`, and `with_security_invoker` cannot be enabled
+  for materialized views.
 
 - `with_check_option` - (Optional) The check option which controls the behavior
   of automatically updatable views. One of: CASCADED, LOCAL. Default is not set.
@@ -54,3 +70,4 @@ resource "postgresql_view" "aggregation_view" {
 ## Postgres documentation
 
 - https://www.postgresql.org/docs/16/sql-createview.html
+- https://www.postgresql.org/docs/16/sql-creatematerializedview.html
