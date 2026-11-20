@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -50,6 +51,95 @@ resource "postgresql_view" "basic_view" {
 			},
 		},
 	})
+}
+
+func TestAccPostgresqlView_Materialized(t *testing.T) {
+	config := func(materialized bool, value int) string {
+		return fmt.Sprintf(`
+resource "postgresql_view" "materialized" {
+    name = "Materialized_View"
+    materialized = %t
+    query = "SELECT %d AS value;"
+}
+`, materialized, value)
+	}
+	check := func(materialized bool, value int) resource.TestCheckFunc {
+		return resource.ComposeTestCheckFunc(
+			testAccCheckPostgresqlViewExists("postgresql_view.materialized", ""),
+			resource.TestCheckResourceAttr("postgresql_view.materialized", "materialized", fmt.Sprint(materialized)),
+			resource.TestCheckResourceAttr("postgresql_view.materialized", "query", fmt.Sprintf("SELECT %d AS value;", value)),
+			func(_ *terraform.State) error {
+				client := testAccProvider.Meta().(*Client)
+				txn, err := startTransaction(client, "")
+				if err != nil {
+					return err
+				}
+				defer deferredRollback(txn)
+				var actual int
+				if err := txn.QueryRow(`SELECT value FROM public."Materialized_View"`).Scan(&actual); err != nil {
+					return err
+				}
+				if actual != value {
+					return fmt.Errorf("expected view value %d, got %d", value, actual)
+				}
+				return nil
+			},
+		)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureView)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlViewDestroy,
+		Steps: []resource.TestStep{
+			{Config: config(true, 1), Check: check(true, 1)},
+			{
+				ResourceName:      "postgresql_view.materialized",
+				ImportState:       true,
+				ImportStateVerify: true,
+				// Imports use PostgreSQL's query formatting and cannot recover drop_cascade.
+				ImportStateVerifyIgnore: []string{viewQueryAttr, viewDropCascadeAttr},
+			},
+			{Config: config(true, 2), Check: check(true, 2)},
+			{Config: config(false, 2), Check: check(false, 2)},
+			{Config: config(true, 2), Check: check(true, 2)},
+		},
+	})
+}
+
+func TestAccPostgresqlView_MaterializedInvalidOptions(t *testing.T) {
+	for _, option := range []struct {
+		name  string
+		value string
+	}{
+		{viewWithCheckOptionAttr, `"CASCADED"`},
+		{viewWithSecurityBarrierAttr, "true"},
+		{viewWithSecurityInvokerAttr, "true"},
+	} {
+		t.Run(option.name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				PreCheck: func() {
+					testAccPreCheck(t)
+					testCheckCompatibleVersion(t, featureView)
+				},
+				Providers: testAccProviders,
+				Steps: []resource.TestStep{{
+					Config: fmt.Sprintf(`
+resource "postgresql_view" "invalid" {
+    name = "invalid_materialized_view"
+    materialized = true
+    query = "SELECT 1 AS value;"
+    %s = %s
+}
+`, option.name, option.value),
+					PlanOnly:    true,
+					ExpectError: regexp.MustCompile(option.name + " is not supported for materialized views"),
+				}},
+			})
+		})
+	}
 }
 
 func TestAccPostgresqlView_CaseSensitiveViewName(t *testing.T) {
@@ -493,6 +583,17 @@ func testAccCheckPostgresqlViewExists(n string, database string) resource.TestCh
 			return fmt.Errorf("View not found")
 		}
 
+		var materialized bool
+		parts := strings.Split(signature, ".")
+		if err := txn.QueryRow(`SELECT c.relkind = 'm' FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = $1 AND c.relname = $2`, parts[1], parts[2]).Scan(&materialized); err != nil {
+			return err
+		}
+		if fmt.Sprint(materialized) != rs.Primary.Attributes[viewMaterializedAttr] {
+			return fmt.Errorf("view materialized state does not match PostgreSQL")
+		}
+
 		return nil
 	}
 }
@@ -532,7 +633,9 @@ func checkViewExists(txn *sql.Tx, signature string) (bool, error) {
 	signatureParts := strings.Split(signature, ".")
 	schema := signatureParts[1]
 	viewName := signatureParts[2]
-	err := txn.QueryRow(fmt.Sprintf("SELECT viewname IS NOT NULL FROM pg_views where schemaname = '%s' AND viewname = '%s'", schema, viewName)).Scan(&exists)
+	err := txn.QueryRow(`SELECT EXISTS (SELECT 1 FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relkind IN ('v', 'm') AND n.nspname = $1 AND c.relname = $2)`, schema, viewName).Scan(&exists)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
